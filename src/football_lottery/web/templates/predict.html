@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}本期预测{% endblock %}
+{% block content %}
+<h2>本期预测</h2>
+<p class="hint" id="info">加载中…</p>
+<table id="predict-table">
+<thead><tr><th>#</th><th>主队</th><th>客队</th><th>时间</th><th>市场主</th><th>市场平</th><th>市场负</th><th>融合主</th><th>融合平</th><th>融合负</th></tr></thead>
+<tbody></tbody>
+</table>
+{% endblock %}
+{% block scripts %}
+<script>
+fetch("/api/predict").then(r => r.json()).then(j => {
+  if (j.warning) {
+    document.getElementById("info").textContent = j.warning;
+    return;
+  }
+  document.getElementById("info").textContent = `期号 ${j.period_no}（${j.matches.length} 场）`;
+  const tbody = document.querySelector("#predict-table tbody");
+  j.matches.forEach(m => {
+    const tr = document.createElement("tr");
+    const fmt = p => p == null ? "-" : (p * 100).toFixed(1) + "%";
+    tr.innerHTML = `<td>${m.seq}</td>
+      <td>${m.home}</td><td>${m.away}</td><td>${m.match_time || ""}</td>
+      <td>${fmt(m.market ? m.market[0] : null)}</td>
+      <td>${fmt(m.market ? m.market[1] : null)}</td>
+      <td>${fmt(m.market ? m.market[2] : null)}</td>
+      <td>${fmt(m.fused ? m.fused[0] : null)}</td>
+      <td>${fmt(m.fused ? m.fused[1] : null)}</td>
+      <td>${fmt(m.fused ? m.fused[2] : null)}</td>`;
+    tbody.appendChild(tr);
+  });
+});
+</script>
+{% endblock %}

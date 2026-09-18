@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}回测报告{% endblock %}
+{% block content %}
+<h2>回测报告</h2>
+<p class="hint">读取 <code>data/reports/*.json</code>。下表为各模型/口径的锚点对比（logloss 越低越好）。</p>
+<table id="t"><thead><tr><th>模型/口径</th><th>场次</th><th>logloss</th><th>Brier</th><th>accuracy</th></tr></thead>
+<tbody></tbody></table>
+{% endblock %}
+{% block scripts %}
+<script>
+fetch("/api/backtest-report").then(r=>r.json()).then(j=>{
+  const tbody = document.querySelector("#t tbody");
+  Object.keys(j).sort().forEach(k=>{
+    const d = j[k];
+    if (typeof d.matches !== "number") return;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><code>${k}</code></td>
+      <td>${d.matches}</td>
+      <td>${(d.logloss ?? "-").toFixed(4)}</td>
+      <td>${(d.brier ?? "-").toFixed(4)}</td>
+      <td>${(d.accuracy ?? "-").toFixed(4)}</td>`;
+    tbody.appendChild(tr);
+  });
+});
+</script>
+{% endblock %}

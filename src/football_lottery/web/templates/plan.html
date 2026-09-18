@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}推荐方案{% endblock %}
+{% block content %}
+<h2>推荐方案</h2>
+<p>
+  玩法 <select id="game_type">
+    <option value="sfc14">14 场胜负</option>
+    <option value="r9">任九</option>
+  </select>
+  目标 <select id="objective">
+    <option value="first_second">保二等</option>
+    <option value="first">冲一等</option>
+  </select>
+  预算 (元) <input id="budget" type="number" value="64" min="2" max="320" step="2">
+  <button id="load-probs">载入概率</button>
+  <button id="solve">求解</button>
+</p>
+<p class="hint">每行输入三概率（空格分隔），共 14 行；任九至少 9 行。</p>
+<textarea id="probs-input" rows="14" cols="40" placeholder="0.5 0.3 0.2
+0.4 0.3 0.3
+..."></textarea>
+<div id="result"></div>
+<pre id="rows" class="printable"></pre>
+<button onclick="window.print()">打印</button>
+{% endblock %}
+{% block scripts %}
+<script>
+function parseProbs(text) {
+  return text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(l => l.split(/\s+/).map(Number));
+}
+async function fillFromPredict() {
+  const j = await fetch("/api/predict").then(r => r.json());
+  if (!j.matches || !j.matches.length) return;
+  document.getElementById("probs-input").value = j.matches.map(m =>
+    m.fused ? m.fused.map(v => v.toFixed(4)).join(" ") : "0.5 0.3 0.2"
+  ).join("\n");
+}
+async function solve() {
+  const probs = parseProbs(document.getElementById("probs-input").value);
+  const r = await fetch("/api/plan", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      game_type: document.getElementById("game_type").value,
+      objective: document.getElementById("objective").value,
+      budget: parseInt(document.getElementById("budget").value, 10),
+      probs
+    })
+  }).then(r => r.json());
+  if (r.detail) { alert(r.detail); return; }
+  const fmtPct = p => p == null ? "-" : (p * 100).toFixed(2) + "%";
+  document.getElementById("result").innerHTML =
+    `<p>注数 <b>${r.notes_count}</b>　金额 ¥<b>${r.amount}</b>　` +
+    `一等奖 ${fmtPct(r.p_first)}　二等奖 ${fmtPct(r.p_second)}</p>
+     <p>每场选择：` + r.legs.map((l,i)=>`<code>${i+1}.${(l||[]).join("")||"—"}</code>`).join(" ")
+    + "</p>";
+  document.getElementById("rows").textContent = (r.rows || []).join("\n");
+}
+document.getElementById("load-probs").onclick = fillFromPredict;
+document.getElementById("solve").onclick = solve;
+</script>
+{% endblock %}

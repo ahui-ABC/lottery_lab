@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}历史战绩{% endblock %}
+{% block content %}
+<h2>历史战绩</h2>
+<p class="hint" id="hint">需先跑 <code>check-draw</code> 后才有数据；当前可能为空。</p>
+<table id="t"><thead><tr><th>期号</th><th>奖级</th><th>奖金合计</th><th>中奖注数</th></tr></thead>
+<tbody></tbody></table>
+{% endblock %}
+{% block scripts %}
+<script>
+fetch("/api/history").then(r=>r.json()).then(j=>{
+  const tbody = document.querySelector("#t tbody");
+  if (!j.summary.length) return;
+  document.getElementById("hint").textContent = "共 " + j.summary.length + " 条记录";
+  j.summary.forEach(r=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${r.period_no}</td><td>${r.tier}</td>
+      <td>¥${(r.amt||0).toFixed(2)}</td><td>${r.n||0}</td>`;
+    tbody.appendChild(tr);
+  });
+});
+</script>
+{% endblock %}
