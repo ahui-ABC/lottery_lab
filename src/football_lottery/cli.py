@@ -17,6 +17,7 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+import json  # noqa: E402
 import yaml  # noqa: E402  (放在 stdout reconfigure 之后,顺序敏感)
 
 
@@ -118,6 +119,70 @@ def cmd_map_fixtures(args, cfg: dict) -> int:
     return 0
 
 
+def cmd_check_draw(args, cfg: dict) -> int:
+    """对指定期（或全部）跑对奖：从 draw_results 取开奖，对每个 plans 计 hit。"""
+    from football_lottery import winnings as W
+    from football_lottery.db import store
+    import json as _json
+
+    conn = _connect(cfg)
+    periods = []
+    if getattr(args, "period", None):
+        pn = args.period
+        row = conn.execute(
+            "SELECT id, period_no FROM periods WHERE period_no=?", (pn,)
+        ).fetchone()
+        if not row:
+            return 1
+        periods = [(row["id"], row["period_no"])]
+    else:
+        periods = list(conn.execute("SELECT id, period_no FROM periods"))
+
+    total_winnings = 0
+    for pid, pn in periods:
+        dr = conn.execute(
+            "SELECT results_json, prizes_json FROM draw_results WHERE period_id=?",
+            (pid,),
+        ).fetchone()
+        if not dr:
+            continue
+        results = [r.strip() for r in dr["results_json"].split(",")]
+        if len(results) != 14:
+            continue
+        prizes = {}
+        if dr["prizes_json"]:
+            try: prizes = _json.loads(dr["prizes_json"])
+            except Exception: prizes = {}
+        # 对每个 plan 计奖
+        plans = list(conn.execute(
+            "SELECT id, game_type, legs_json FROM plans WHERE period_id=?",
+            (pid,),
+        ))
+        for plan in plans:
+            legs = _json.loads(plan["legs_json"])
+            if plan["game_type"] == "sfc14" and len(legs) == 14:
+                first, second = W.hit_counts(legs, results)
+                tier_list = [("first", first, prizes.get("first")),
+                             ("second", second, prizes.get("second"))]
+            elif plan["game_type"] == "r9" and len(legs) == 9:
+                hit = W.r9_hit(legs, results)
+                tier_list = [("r9", hit, prizes.get("r9"))]
+            else:
+                continue
+            for tier, n, prize in tier_list:
+                if n <= 0:
+                    continue
+                amt = W.amount(n, prize)
+                store.upsert(conn, "winnings", {
+                    "period_id": pid, "plan_id": plan["id"],
+                    "tier": tier, "hit_notes": n,
+                    "single_prize": prize, "amount": amt,
+                }, ["plan_id", "tier"])
+                total_winnings += 1
+    print(f"新增/更新 {total_winnings} 条对奖记录")
+    return 0
+
+
 def cmd_serve(args, cfg: dict) -> int:
     import uvicorn
     port = int(args.port or cfg.get("serve_port", 8765))
@@ -150,6 +215,16 @@ def build_parser() -> argparse.ArgumentParser:
     # data-health
     s = sub.add_parser("data-health", help="数据库体检")
 
+    # check-draw
+    s = sub.add_parser("check-draw", help="对指定期跑对奖并写 winnings")
+    s.add_argument("--period", help="指定期号；不传则所有期次")
+
+    # backtest
+    s = sub.add_parser("backtest", help="回测（market/dc/gbdt/fused）")
+    s.add_argument("--model", default="market", choices=["market", "dc"])
+    s.add_argument("--start", required=True)
+    s.add_argument("--odds", default="avg", choices=["avg", "max", "b365"])
+
     # serve
     s = sub.add_parser("serve", help="启动本地 Web（FastAPI + 静态页）")
     s.add_argument("--port", type=int)
@@ -169,6 +244,25 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_map_fixtures(args, cfg)
     if args.cmd == "data-health":
         return cmd_data_health(args, cfg)
+    if args.cmd == "check-draw":
+        return cmd_check_draw(args, cfg)
+    if args.cmd == "backtest":
+        # 重定向到 backend.backtest 模块的简单 runner
+        if args.model == "market":
+            from football_lottery.backtest import baseline
+            s = baseline.run(args.db if hasattr(args, "db") else "data/football.db",
+                              args.start, odds_source=args.odds,
+                              out_path=f"data/reports/baseline_market_{args.odds}.json")
+            print(json.dumps(s, indent=2, ensure_ascii=False))
+            return 0
+        if args.model == "dc":
+            from football_lottery.backtest import dc as _dc
+            s = _dc.run("data/football.db", args.start,
+                        out_path=f"data/reports/baseline_dc.json")
+            print(json.dumps(s, indent=2, ensure_ascii=False))
+            return 0
+        parser.print_help()
+        return 1
     if args.cmd == "serve":
         return cmd_serve(args, cfg)
     parser.print_help()
