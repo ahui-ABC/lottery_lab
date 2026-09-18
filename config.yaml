@@ -13,7 +13,7 @@ market:
   odds_source: avg         # avg | max；回测选优后写此键
 
 dc:
-  half_life_days: 180      # 回测选优后写此值（T13）
+  half_life_days: 365      # T13 回测选优（90/180/365 三点中 365 略胜）
 
 backtest:
   train_years: 4
