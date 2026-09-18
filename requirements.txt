@@ -1,0 +1,10 @@
+httpx>=0.27
+pandas>=2.2
+numpy>=2.0
+scipy>=1.13
+scikit-learn>=1.5
+lightgbm>=4.5        # 3.14 安装失败则删掉本行，T15 自动走 sklearn 兜底
+fastapi>=0.115
+uvicorn>=0.32
+jinja2>=3.1
+pytest>=8.3
