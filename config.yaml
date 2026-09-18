@@ -7,7 +7,7 @@ use_lightgbm: true         # 3.14 装不上时切 false，自动改用 sklearn.H
 divisions:                 # football-data 联赛代码
   [E0, E1, D1, I1, SP1, F1, N1, P1, SC0]
 
-seasons: [2122, 2223, 2324, 2425, 2526]
+seasons: ["2122", "2223", "2324", "2425", "2526"]
 
 market:
   odds_source: avg         # avg | max；回测选优后写此键
