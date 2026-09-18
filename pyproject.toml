@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "football-lottery"
+version = "0.1.0"
+description = "足彩（14 场胜负 / 任选九）预测与方案工具"
+requires-python = ">=3.13"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"football_lottery.db" = ["schema.sql"]
