@@ -1,0 +1,26 @@
+{
+  "dataFrom": "",
+  "emptyFlag": false,
+  "errorCode": "0",
+  "errorMessage": "处理成功",
+  "success": true,
+  "value": [
+    {
+      "lotteryDrawNum": "26131",
+      "lotteryDrawTime": "2026-09-21 14:00:00",
+      "lotteryGameName": "",
+      "lotteryGameNum": "90",
+      "lotteryGamePronum": 0,
+      "lotterySaleBeginTime": "2026-09-16 20:00:00",
+      "lotterySaleEndTimeUnix": 1789907400000,
+      "lotterySaleEndtime": "2026-09-20 20:30:00",
+      "poolBalance": "",
+      "vtoolsConfig": {
+        "offLineSaleStatus": 1,
+        "offLineStopMessage": "抱歉，本彩种已停止销售",
+        "onLineSaleStatus": 1,
+        "onLineStopMessage": "抱歉，本彩种已停止销售"
+      }
+    }
+  ]
+}

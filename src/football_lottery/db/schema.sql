@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS period_matches (
   match_time TEXT,
   match_id INTEGER REFERENCES matches(id),
   odds_json TEXT,
+  league_cn TEXT,
   UNIQUE(period_id, seq));
 
 CREATE TABLE IF NOT EXISTS predictions (

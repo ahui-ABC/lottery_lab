@@ -13,6 +13,7 @@ import io
 import json
 import sqlite3
 import sqlite3 as _sql
+import time
 from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
@@ -20,39 +21,309 @@ from typing import Iterable
 from football_lottery.db import store
 
 
-# ---- live API（best-effort） -------------------------------------------------------
-LIVE_URLS = {
-    "current_sfc14": "https://webapi.sporttery.cn/gateway/lottery/getMatchListV1.qry?param=90,0&isVerify=1",
-    "draws_sfc14": "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=90&provinceId=0&pageSize=30&isVerify=1&pageNo=1",
-    "draws_r9": "https://webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry?gameNo=85&provinceId=0&pageSize=30&isVerify=1&pageNo=1",
+# ---- live API（官方 webapi，无需认证） -------------------------------------------
+#
+# 接口清单（2026-09-20 实测确认，均无需签名/登录）：
+#   getLottoSaleInfoV1.qry?param=90,0
+#       → 当期在售期号与销售截止时间。param 为 "<gameNo>,<type>"，
+#         90 = 胜负彩（85 = 超级大乐透，35 = 排列3，与足彩无关）。
+#   getFootBallDrawInfoByDrawNumV2.qry?isVerify=1&lotteryGameNum=90&lotteryDrawNum=<期号>
+#       → 指定期次详情，value.matchList 为 14 场对阵。
+#         lotteryGameNum 与 lotteryDrawNum 缺一返回 P0001。
+#   getFootBallDrawInfoV2.qry?isVerify=1&param=90,0
+#       → 最新期详情在 value.sfcDetail，期次列表在 value.sfclist。
+#   getHistoryPageListV1.qry?gameNo=90&provinceId=0&pageSize=100&isVerify=1&pageNo=<页>
+#       → 历史开奖，value.list 每期含 matchList + lotteryDrawResult + 奖金。
+#
+# 注意：E0001 是"接口不存在/参数不合法"的通用码，不是反爬；
+#       接口不提供赔率（matchList[].h/d/a 恒为空）。
+BASE_URL = "https://webapi.sporttery.cn/gateway/lottery"
+SFC_GAME_NO = "90"
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+    ),
+    "Referer": "https://www.sporttery.cn/ctzc/kjgg/",
+    "Origin": "https://www.sporttery.cn",
+    "Accept": "application/json, text/plain, */*",
 }
 
 
-def fetch_live(url_key: str, timeout: int = 15) -> dict | None:
-    """尝试请求 live URL；返回 JSON dict。遇到反爬 / 错误时返回 None。"""
+class CollectorError(RuntimeError):
+    """官方接口网络失败或返回业务错误码。"""
+
+    def __init__(self, message: str, error_code: str | None = None):
+        super().__init__(message)
+        self.error_code = error_code
+
+
+def _http_get(url: str, params: dict | None, timeout: int = 20):
+    """薄封装，便于测试打桩。"""
     import httpx
-    url = LIVE_URLS.get(url_key)
-    if not url:
+
+    return httpx.get(
+        url, params=params, timeout=timeout, headers=_HEADERS, follow_redirects=True
+    )
+
+
+def _get_json(path: str, params: dict | None = None, timeout: int = 20) -> dict:
+    """请求官方接口并返回 JSON；任何失败都抛 CollectorError。"""
+    url = f"{BASE_URL}/{path}"
+    try:
+        resp = _http_get(url, params, timeout=timeout)
+    except Exception as exc:  # 网络层异常统一收敛
+        raise CollectorError(f"请求失败 {path}: {exc}") from exc
+    if resp.status_code != 200:
+        raise CollectorError(f"HTTP {resp.status_code} {path}")
+    try:
+        body = resp.json()
+    except Exception as exc:
+        raise CollectorError(f"响应非 JSON {path}") from exc
+    code = body.get("errorCode")
+    if code not in (None, "0", 0, ""):
+        raise CollectorError(
+            f"接口错误 {code} {path}: {body.get('errorMessage')}", error_code=code
+        )
+    return body
+
+
+def fetch_current_period() -> dict | None:
+    """当期在售期次；无在售返回 None。"""
+    body = _get_json("getLottoSaleInfoV1.qry", {"param": f"{SFC_GAME_NO},0"})
+    items = body.get("value") or []
+    if not items:
+        return None
+    item = items[0]
+    return {
+        "period_no": item.get("lotteryDrawNum"),
+        "sale_end": item.get("lotterySaleEndtime"),
+        "draw_time": item.get("lotteryDrawTime"),
+    }
+
+
+def fetch_period_detail(period_no: str) -> dict:
+    """按期号取期次详情。返回的 value 直接是期次详情（无 sfcDetail 外层）。"""
+    body = _get_json(
+        "getFootBallDrawInfoByDrawNumV2.qry",
+        {"isVerify": 1, "lotteryGameNum": SFC_GAME_NO, "lotteryDrawNum": period_no},
+    )
+    return body.get("value") or {}
+
+
+def fetch_history_page(page_no: int, page_size: int = 100) -> dict:
+    """取一页历史开奖。返回的 value 含 list / total / pages。"""
+    body = _get_json(
+        "getHistoryPageListV1.qry",
+        {
+            "gameNo": SFC_GAME_NO,
+            "provinceId": 0,
+            "pageSize": page_size,
+            "isVerify": 1,
+            "pageNo": page_no,
+        },
+    )
+    return body.get("value") or {}
+
+
+# ---- 解析层（纯函数） ------------------------------------------------------------
+def _norm_team_name(value: str | None) -> str:
+    """统一空白：折叠连续空格、去首尾，消除官方数据的全角/填充空格。"""
+    return " ".join((value or "").split())
+
+
+def parse_period(detail: dict, status: str) -> dict:
+    """官方期次详情 → {period, fixtures} 入库结构。
+
+    fixtures 长度必须为 14，否则拒绝（避免不完整数据污染 DB）。
+    队名取全名字段：实测全名别名命中 20/28，简称仅 16/28。
+    """
+    period_no = (detail.get("lotteryDrawNum") or "").strip()
+    matches = detail.get("matchList") or []
+    if len(matches) != 14:
+        raise CollectorError(
+            f"期次 {period_no or '?'} 对阵数为 {len(matches)}，期望 14，拒绝入库"
+        )
+
+    fixtures: list[dict] = []
+    for item in matches:
+        seq = item.get("matchNum")
+        if not isinstance(seq, int) or not (1 <= seq <= 14):
+            raise CollectorError(f"期次 {period_no} 场次序号非法: {seq!r}")
+        fixtures.append({
+            "seq": seq,
+            "home_name_cn": _norm_team_name(item.get("masterTeamAllName")),
+            "away_name_cn": _norm_team_name(item.get("guestTeamAllName")),
+            "match_time": item.get("startTime") or None,
+            "league_cn": item.get("matchName") or None,
+        })
+    fixtures.sort(key=lambda f: f["seq"])
+
+    return {
+        "period": {
+            "period_no": period_no,
+            "draw_date": (detail.get("lotteryDrawTime") or "")[:10] or None,
+            "sale_end": detail.get("lotterySaleEndtime") or None,
+            "status": status,
+        },
+        "fixtures": fixtures,
+    }
+
+
+def _prize_amount(item: dict) -> float | None:
+    raw = item.get("stakeAmountFormat") or item.get("stakeAmount")
+    if not raw:
         return None
     try:
-        r = httpx.get(
-            url,
-            timeout=timeout,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible)",
-                "Referer": "https://www.sporttery.cn/",
-            },
-            follow_redirects=True,
+        return float(str(raw).replace(",", ""))
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_draw_results(detail: dict) -> dict | None:
+    """官方期次详情 → {results_json, prizes_json}；未开奖返回 None。
+
+    产出格式对齐 import_fixtures_csv，避免下游 check-draw 分裂出两套解析：
+    results_json 为逗号分隔的 14 个 0/1/3；prizes_json 形如
+    {"first": …, "second": …, "r9": …}（缺失的键不写入）。
+    官方对取消/延期的场次用 '*' 占位，此类赛果视为不完整。
+    """
+    raw = (detail.get("lotteryDrawResult") or "").strip()
+    results = [x for x in raw.split() if x]
+    if len(results) != 14 or any(x not in {"0", "1", "3"} for x in results):
+        return None
+
+    prizes: dict[str, float] = {}
+    for item in detail.get("prizeLevelList") or []:
+        level = (item.get("prizeLevel") or "").strip()
+        amount = _prize_amount(item)
+        if amount is None:
+            continue
+        if level == "一等奖":
+            prizes["first"] = amount
+        elif level == "二等奖":
+            prizes["second"] = amount
+    for item in detail.get("prizeLevelListRj") or []:
+        level = (item.get("prizeLevel") or "").strip()
+        amount = _prize_amount(item)
+        if amount is not None and level in {"任选9场", "任九"}:
+            prizes["r9"] = amount
+
+    return {
+        "results_json": ",".join(results),
+        "prizes_json": json.dumps(prizes) if prizes else None,
+    }
+
+
+# ---- 入库层 ----------------------------------------------------------------------
+def upsert_period(conn, parsed: dict, demote_others: bool = False) -> int:
+    """写入期次与 14 场对阵，返回 period_id。
+
+    幂等：同一期重跑不产生重复行。且**保留**已存在的 match_id / odds_json，
+    否则重跑 collect-period 会清空 map-fixtures 的成果。
+    """
+    period = parsed["period"]
+    if demote_others:
+        conn.execute(
+            "UPDATE periods SET status='historical' WHERE status='current' AND period_no<>?",
+            (period["period_no"],),
         )
-        if r.status_code != 200:
-            return None
-        body = r.json()
-    except Exception:
-        return None
-    # 若 API 返回业务级错误码（如 E0001 待确认 / P0001 参数非法），当作不可用
-    if body.get("errorCode") not in (None, "0", "0000", ""):
-        return None
-    return body
+
+    store.upsert(conn, "periods", {
+        "period_no": period["period_no"],
+        "draw_date": period.get("draw_date"),
+        "sale_end": period.get("sale_end"),
+        "status": period.get("status") or "historical",
+    }, ["period_no"])
+
+    period_id = conn.execute(
+        "SELECT id FROM periods WHERE period_no=?", (period["period_no"],)
+    ).fetchone()["id"]
+
+    previous = {
+        row["seq"]: row
+        for row in conn.execute(
+            "SELECT seq, match_id, odds_json FROM period_matches WHERE period_id=?",
+            (period_id,),
+        )
+    }
+
+    for fx in parsed["fixtures"]:
+        prev = previous.get(fx["seq"])
+        store.upsert(conn, "period_matches", {
+            "period_id": period_id,
+            "seq": fx["seq"],
+            "home_name_cn": fx["home_name_cn"],
+            "away_name_cn": fx["away_name_cn"],
+            "match_time": fx.get("match_time"),
+            "league_cn": fx.get("league_cn"),
+            "match_id": prev["match_id"] if prev else None,
+            "odds_json": prev["odds_json"] if prev else None,
+        }, ["period_id", "seq"])
+    return period_id
+
+
+def collect_history(
+    conn,
+    years: int = 4,
+    page_size: int = 100,
+    pause: float = 0.5,
+) -> dict:
+    """拉取近 N 年历史开奖入库。翻页遇到早于 cutoff 的期次即停止。"""
+    from datetime import date, timedelta
+
+    cutoff = date.today() - timedelta(days=365 * years)
+    saved = skipped = 0
+    period_nos: list[str] = []
+    page_no = 1
+
+    while True:
+        value = fetch_history_page(page_no, page_size=page_size)
+        items = value.get("list") or []
+        if not items:
+            break
+
+        reached_cutoff = False
+        for item in items:
+            draw_time = (item.get("lotteryDrawTime") or "")[:10]
+            try:
+                drawn_on = date.fromisoformat(draw_time)
+            except ValueError:
+                skipped += 1
+                continue
+            if drawn_on < cutoff:
+                reached_cutoff = True
+                break
+
+            # 先解析开奖再决定是否入库：官方对取消/延期的场次用 '*' 占位
+            # （实测 26127、26106 即如此），此类期次赛果不完整，整期跳过，
+            # 保证"入库的期次必有 draw_results"。
+            draw = parse_draw_results(item)
+            if not draw:
+                skipped += 1
+                continue
+            try:
+                parsed = parse_period(item, status="historical")
+            except CollectorError:
+                # 对阵异常（含 matchList != 14）的期次跳过并计数，不中断整批
+                skipped += 1
+                continue
+
+            period_id = upsert_period(conn, parsed)
+            store.upsert(conn, "draw_results", {"period_id": period_id, **draw}, ["period_id"])
+            saved += 1
+            period_nos.append(parsed["period"]["period_no"])
+
+        if reached_cutoff:
+            break
+        total_pages = value.get("pages") or 0
+        page_no += 1
+        if total_pages and page_no > total_pages:
+            break
+        time.sleep(pause)
+
+    return {"periods_saved": saved, "skipped": skipped, "period_nos": period_nos}
 
 
 # ---- fixture CSV 导入（兜底主路径） ------------------------------------------------

@@ -66,6 +66,25 @@ def data_health(conn) -> dict:
     last_match = conn.execute(
         "SELECT MAX(match_date) FROM matches"
     ).fetchone()[0]
+    current_row = conn.execute(
+        "SELECT id, period_no FROM periods WHERE status='current' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    current_period = current_row["period_no"] if current_row else None
+    current_missing_odds = 0
+    if current_row:
+        for r in conn.execute(
+            "SELECT odds_json FROM period_matches WHERE period_id=?", (current_row["id"],)
+        ):
+            odds = r["odds_json"]
+            if not odds:
+                current_missing_odds += 1
+                continue
+            try:
+                j = _json.loads(odds)
+            except Exception:
+                j = {}
+            if not any(k in j for k in ("avg", "b365", "max")):
+                current_missing_odds += 1
     out = {
         "matches_total": total,
         "matches_with_odds": with_odds,
@@ -75,6 +94,8 @@ def data_health(conn) -> dict:
         "unmapped_fixtures": periods_unmapped,
         "unconfirmed_aliases": unconfirmed,
         "last_match_date": last_match,
+        "current_period": current_period,
+        "current_period_missing_odds": current_missing_odds,
     }
     return out
 
@@ -86,6 +107,80 @@ def cmd_collect_history(args, cfg: dict) -> int:
     conn = _connect(cfg)
     n = fd.fetch_and_collect(conn, seasons, divisions, silent=False)
     print(f"合计入库 {n} 条（分赛季联赛见上方输出）")
+    return 0
+
+
+def cmd_collect_period(args, cfg: dict) -> int:
+    """采集当期对阵：官方接口取期号 + 14 场对阵并入库。"""
+    if args.file:
+        return cmd_import_fixtures(args, cfg)
+    from football_lottery.collectors import sporttery
+    conn = _connect(cfg)
+    try:
+        current = sporttery.fetch_current_period()
+        if not current or not current.get("period_no"):
+            print("当前无在售胜负彩期次；可用 --file 导入 CSV。", file=sys.stderr)
+            return 2
+        detail = sporttery.fetch_period_detail(current["period_no"])
+        parsed = sporttery.parse_period(detail, status="current")
+        if not parsed["period"].get("sale_end"):
+            parsed["period"]["sale_end"] = current.get("sale_end")
+        period_id = sporttery.upsert_period(conn, parsed, demote_others=True)
+    except sporttery.CollectorError as exc:
+        print(f"采集失败：{exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({
+        "period_no": parsed["period"]["period_no"],
+        "period_id": period_id,
+        "fixtures": len(parsed["fixtures"]),
+        "sale_end": parsed["period"].get("sale_end"),
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_collect_draws(args, cfg: dict) -> int:
+    """采集近 N 年历史开奖（对阵 + 赛果 + 奖金）并入库。"""
+    if args.file:
+        return cmd_import_fixtures(args, cfg)
+    from football_lottery.collectors import sporttery
+    conn = _connect(cfg)
+    years = getattr(args, "years", None) or 4
+    try:
+        out = sporttery.collect_history(conn, years=years)
+    except sporttery.CollectorError as exc:
+        print(f"采集失败：{exc}", file=sys.stderr)
+        return 2
+    print(json.dumps({
+        "years": years,
+        "periods_saved": out["periods_saved"],
+        "skipped": out["skipped"],
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_train(args, cfg: dict) -> int:
+    from football_lottery.models import pipeline
+    conn = _connect(cfg)
+    out = pipeline.train_gbdt(
+        conn,
+        models_dir=args.models_dir or cfg.get("models_dir", "data/models"),
+        use_lightgbm=bool(cfg.get("use_lightgbm", True)),
+        n_estimators=args.n_estimators,
+        learning_rate=args.learning_rate,
+    )
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_backtest_plans(args, cfg: dict) -> int:
+    from football_lottery.backtest import plans
+    out = plans.run(
+        db_path=args.db or cfg.get("db_path", "data/football.db"),
+        start=args.start,
+        budget=args.budget or int(cfg.get("budget_per_game", 64)),
+        out_path=args.out,
+    )
+    print(json.dumps(out, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -164,8 +259,16 @@ def cmd_check_draw(args, cfg: dict) -> int:
                 first, second = W.hit_counts(legs, results)
                 tier_list = [("first", first, prizes.get("first")),
                              ("second", second, prizes.get("second"))]
-            elif plan["game_type"] == "r9" and len(legs) == 9:
-                hit = W.r9_hit(legs, results)
+            elif plan["game_type"] == "r9":
+                if isinstance(legs, dict):
+                    selected = legs.get("selected", [])
+                    selected_legs = legs.get("legs", [])
+                    selected_results = [results[i] for i in selected
+                                       if isinstance(i, int) and 0 <= i < len(results)]
+                else:
+                    selected_legs = legs
+                    selected_results = results[:len(legs)]
+                hit = W.r9_hit(selected_legs, selected_results)
                 tier_list = [("r9", hit, prizes.get("r9"))]
             else:
                 continue
@@ -204,6 +307,13 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--seasons", nargs="+", help="如 2122 2223 ... 2526")
     s.add_argument("--divisions", nargs="+", help="如 E0 D1 I1 ...")
 
+    # collect-period / collect-draws
+    s = sub.add_parser("collect-period", help="获取当期对阵；无网络时用 CSV 兜底")
+    s.add_argument("--file", help="本地期次 CSV（与 import-fixtures 格式相同）")
+    s = sub.add_parser("collect-draws", help="获取历史开奖；无网络时用 CSV 兜底")
+    s.add_argument("--file", help="本地开奖 CSV（与 import-fixtures 格式相同）")
+    s.add_argument("--years", type=int, default=4, help="回溯年数；默认 4 年")
+
     # import-fixtures
     s = sub.add_parser("import-fixtures", help="导入历史期次对阵 CSV（兜底 T5）")
     s.add_argument("--file", required=True, help="fixture CSV 路径")
@@ -221,9 +331,26 @@ def build_parser() -> argparse.ArgumentParser:
 
     # backtest
     s = sub.add_parser("backtest", help="回测（market/dc/gbdt/fused）")
-    s.add_argument("--model", default="market", choices=["market", "dc"])
+    s.add_argument("--model", default="market", choices=["market", "dc", "gbdt", "fused"])
     s.add_argument("--start", required=True)
     s.add_argument("--odds", default="avg", choices=["avg", "max", "b365"])
+    s.add_argument("--db", default="data/football.db")
+    s.add_argument("--refit-days", type=int, default=30)
+    s.add_argument("--max-train", type=int, default=1500)
+    s.add_argument("--out")
+
+    # train
+    s = sub.add_parser("train", help="训练并保存本地 GBDT 模型")
+    s.add_argument("--models-dir", default="data/models")
+    s.add_argument("--n-estimators", type=int, default=200)
+    s.add_argument("--learning-rate", type=float, default=0.05)
+
+    # plan backtest
+    s = sub.add_parser("backtest-plans", help="按历史期次回测方案与赔率方案")
+    s.add_argument("--db", help="SQLite 数据库路径；默认读取 config.yaml")
+    s.add_argument("--start")
+    s.add_argument("--budget", type=int)
+    s.add_argument("--out", default="data/reports/plan_backtest.json")
 
     # serve
     s = sub.add_parser("serve", help="启动本地 Web（FastAPI + 静态页）")
@@ -238,6 +365,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.cmd == "collect-history":
         return cmd_collect_history(args, cfg)
+    if args.cmd == "collect-period":
+        return cmd_collect_period(args, cfg)
+    if args.cmd == "collect-draws":
+        return cmd_collect_draws(args, cfg)
     if args.cmd == "import-fixtures":
         return cmd_import_fixtures(args, cfg)
     if args.cmd == "map-fixtures":
@@ -250,19 +381,37 @@ def main(argv: list[str] | None = None) -> int:
         # 重定向到 backend.backtest 模块的简单 runner
         if args.model == "market":
             from football_lottery.backtest import baseline
-            s = baseline.run(args.db if hasattr(args, "db") else "data/football.db",
-                              args.start, odds_source=args.odds,
-                              out_path=f"data/reports/baseline_market_{args.odds}.json")
+            s = baseline.run(args.db, args.start, odds_source=args.odds,
+                              out_path=args.out or f"data/reports/baseline_market_{args.odds}.json")
             print(json.dumps(s, indent=2, ensure_ascii=False))
             return 0
         if args.model == "dc":
             from football_lottery.backtest import dc as _dc
-            s = _dc.run("data/football.db", args.start,
-                        out_path=f"data/reports/baseline_dc.json")
+            s = _dc.run(args.db, args.start, refit_days=args.refit_days,
+                        max_train_matches=args.max_train,
+                        out_path=args.out or "data/reports/baseline_dc.json")
             print(json.dumps(s, indent=2, ensure_ascii=False))
             return 0
-        parser.print_help()
-        return 1
+        if args.model == "gbdt":
+            from football_lottery.backtest import advanced
+            s = advanced.run_gbdt(args.db, args.start, refit_days=args.refit_days,
+                                  max_train_matches=args.max_train,
+                                  use_lightgbm=bool(cfg.get("use_lightgbm", True)),
+                                  out_path=args.out or "data/reports/baseline_gbdt.json")
+            print(json.dumps(s, indent=2, ensure_ascii=False))
+            return 0
+        if args.model == "fused":
+            from football_lottery.backtest import advanced
+            s = advanced.run_fused(args.db, args.start, refit_days=args.refit_days,
+                                   max_train_matches=args.max_train,
+                                   use_lightgbm=bool(cfg.get("use_lightgbm", True)),
+                                   out_path=args.out or "data/reports/baseline_fused.json")
+            print(json.dumps(s, indent=2, ensure_ascii=False))
+            return 0
+    if args.cmd == "train":
+        return cmd_train(args, cfg)
+    if args.cmd == "backtest-plans":
+        return cmd_backtest_plans(args, cfg)
     if args.cmd == "serve":
         return cmd_serve(args, cfg)
     parser.print_help()

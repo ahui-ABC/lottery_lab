@@ -16,8 +16,9 @@ def connect(db_path: str) -> sqlite3.Connection:
 
 
 def init_db(conn: sqlite3.Connection) -> None:
-    """执行 schema.sql 建表（幂等）。"""
+    """执行 schema.sql 建表并补齐新增列（幂等）。"""
     conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+    ensure_columns(conn)
     conn.commit()
 
 
@@ -47,3 +48,20 @@ def fetchone(conn: sqlite3.Connection, sql: str, params: Iterable = ()) -> sqlit
 
 def fetchall(conn: sqlite3.Connection, sql: str, params: Iterable = ()) -> list[sqlite3.Row]:
     return list(conn.execute(sql, params))
+
+
+# schema.sql 用 CREATE TABLE IF NOT EXISTS，无法给已存在的表补列；
+# 这里集中做幂等的轻量迁移。
+_COLUMN_MIGRATIONS = {
+    "period_matches": [("league_cn", "TEXT")],
+}
+
+
+def ensure_columns(conn: sqlite3.Connection) -> None:
+    """补齐 schema 演进新增的列（幂等，可重复调用）。"""
+    for table, columns in _COLUMN_MIGRATIONS.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, decl in columns:
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    conn.commit()
