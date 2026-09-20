@@ -383,6 +383,9 @@ def cmd_predict_jc(args, cfg: dict) -> int:
                 continue
             if args.delay:
                 time.sleep(args.delay)
+            # 同时落盘赔率序列：否则 hhad 的让球线等信息丢失，
+            # 页面上无法说明"让了几球"（曾因此让用户误以为推荐自相矛盾）
+            jc_history.save_odds_series(conn, mid, value)
             rows += jc_predict.predict_match(
                 conn, mid, jc_predict.odds_by_pool_from_value(value), day)
 

@@ -182,6 +182,30 @@ def _write_one_match(conn: sqlite3.Connection, match_id: int, parsed: dict,
     return rows
 
 
+def save_odds_series(conn: sqlite3.Connection, match_id: int, value: dict) -> int:
+    """把一次 `getFixedBonusV1` 响应里的赔率序列存进 `jc_odds_history`。
+
+    `predict-jc` 用它：实时预测时本来只写 `jc_predictions`，导致赔率序列
+    （尤其 hhad 的**让球线**）没有落库，页面上无法说明"让了几球"。
+    """
+    parsed = parse_fixed_bonus(value)
+    if not parsed["odds"]:
+        return 0
+    return _write_one_match(conn, match_id, parsed,
+                            datetime.now().isoformat(timespec="seconds"))
+
+
+def goal_line_of(conn: sqlite3.Connection, match_id: int, pool: str) -> str | None:
+    """取某场某玩法的让球线（hhad/crs 才有意义）。"""
+    row = conn.execute(
+        """SELECT goal_line FROM jc_odds_history
+           WHERE match_id=? AND pool=? AND goal_line IS NOT NULL
+           ORDER BY seq DESC LIMIT 1""",
+        (match_id, pool),
+    ).fetchone()
+    return row["goal_line"] if row else None
+
+
 # ---- 同步编排 --------------------------------------------------------------------
 def _day_done(conn, day: str, refresh_from: str | None) -> bool:
     """该日是否已完成（且不在刷新窗口内）。"""

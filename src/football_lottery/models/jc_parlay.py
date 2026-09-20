@@ -234,12 +234,21 @@ def recent_plans(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     rows = list(conn.execute(
         """SELECT * FROM jc_parlay_plans
            ORDER BY plan_date DESC, pool ASC LIMIT ?""", (limit,)))
+    from football_lottery.collectors import jc_history
+
     out = []
     for row in rows:
         pool = row["pool"]
         legs = json.loads(row["legs_json"])
         for leg in legs:
-            leg["pick_label"] = jc_predict.option_label(pool, leg.get("pick"))
+            # 让球玩法必须带让球线：不然"主胜"看着会和比分盘的"1:1"自相矛盾
+            # （让球 +1 的"主胜"= 主队平或赢，平局本就在其中）
+            line = jc_history.goal_line_of(conn, leg["match_id"], pool) if pool in ("hhad", "crs") else None
+            leg["goal_line"] = line
+            label = jc_predict.option_label(pool, leg.get("pick"))
+            if line and pool == "hhad":
+                label = f"{label}({line})"
+            leg["pick_label"] = label
         out.append({
             "id": row["id"],
             "plan_date": row["plan_date"],
