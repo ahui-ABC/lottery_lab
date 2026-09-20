@@ -296,6 +296,81 @@ def api_teams(q: str | None = None):
     return {"teams": [dict(row) for row in rows]}
 
 
+def _legs_detail(conn, period_id, legs) -> list[dict]:
+    """每场一行：队名 + 中文胜平负（双选/三选并列在同一行，不展开）。
+
+    兼容两种 legs 形态：
+      - sfc14: [[...], ...] 按序号 1..14 对应
+      - r9:    {"selected": [0-based idx], "legs": [[...]]} 只展示选中的场次
+    """
+    if period_id is None:
+        return []
+
+    name_by_seq = {}
+    for row in conn.execute(
+        """SELECT seq, home_name_cn, away_name_cn FROM period_matches
+           WHERE period_id=? ORDER BY seq""",
+        (period_id,),
+    ):
+        name_by_seq[row["seq"]] = (row["home_name_cn"], row["away_name_cn"])
+
+    if isinstance(legs, dict):
+        pairs = [(int(i) + 1, leg)
+                 for i, leg in zip(legs.get("selected") or [], legs.get("legs") or [])]
+    else:
+        pairs = list(enumerate(legs or [], start=1))
+
+    out = []
+    for seq, leg in pairs:
+        selection = [str(x) for x in (leg or [])]
+        if not selection:
+            continue
+        home, away = name_by_seq.get(seq, (None, None))
+        out.append({
+            "seq": seq,
+            "home": home,
+            "away": away,
+            "selection": selection,
+            "labels": [OUTCOME_LABELS.get(x, x) for x in selection],
+        })
+    return out
+
+
+@app.get("/api/plans")
+def api_plans(period_id: int, game_type: str):
+    """某期某玩法下的全部已存方案（含每场选择明细），供历史战绩弹框使用。"""
+    conn = _get_conn()
+    rows = list(conn.execute(
+        """SELECT pl.id, pl.objective, pl.budget, pl.notes_count,
+                  pl.p_first, pl.p_second, pl.legs_json, pl.created_at,
+                  p.period_no
+           FROM plans pl JOIN periods p ON p.id = pl.period_id
+           WHERE pl.period_id=? AND pl.game_type=?
+           ORDER BY pl.id DESC""",
+        (period_id, game_type),
+    ))
+    if not rows:
+        raise HTTPException(404, "该期次/玩法下没有方案")
+    plans = []
+    for row in rows:
+        try:
+            legs = json.loads(row["legs_json"])
+        except (TypeError, ValueError, json.JSONDecodeError):
+            legs = []
+        plans.append({
+            "plan_id": row["id"],
+            "objective": row["objective"],
+            "budget": row["budget"],
+            "notes_count": row["notes_count"],
+            "amount": int(row["notes_count"] or 0) * 2,
+            "p_first": row["p_first"],
+            "p_second": row["p_second"],
+            "created_at": row["created_at"],
+            "legs_detail": _legs_detail(conn, period_id, legs),
+        })
+    return {"period_no": rows[0]["period_no"], "game_type": game_type, "plans": plans}
+
+
 @app.post("/api/plan")
 def api_plan(req: PlanReq):
     try:
@@ -340,29 +415,7 @@ def api_plan(req: PlanReq):
         conn.commit()
         plan_id = cur.lastrowid
 
-    # 每场一行：队名 + 中文胜平负（双选/三选并列在同一行，不展开）
-    name_by_seq = {}
-    if period_id is not None:
-        for row in conn.execute(
-            """SELECT seq, home_name_cn, away_name_cn FROM period_matches
-               WHERE period_id=? ORDER BY seq""",
-            (period_id,),
-        ):
-            name_by_seq[row["seq"]] = (row["home_name_cn"], row["away_name_cn"])
-
-    legs_detail = []
-    for idx, leg in enumerate(legs, start=1):
-        selection = [str(x) for x in (leg or [])]
-        if not selection:
-            continue
-        home, away = name_by_seq.get(idx, (None, None))
-        legs_detail.append({
-            "seq": idx,
-            "home": home,
-            "away": away,
-            "selection": selection,
-            "labels": [OUTCOME_LABELS.get(x, x) for x in selection],
-        })
+    legs_detail = _legs_detail(conn, period_id, legs)
 
     return {
         "plan_id": plan_id,

@@ -99,3 +99,64 @@ def test_plan_still_returns_rows_for_callers(conn, monkeypatch):
 
     assert got["rows"]
     assert all(len(r) == 14 for r in got["rows"])
+
+
+# ---- 历史战绩：点击期号查看投注选项 ------------------------------------------------
+def _seed_saved_plan(conn, legs, game_type="sfc14", objective="first_second"):
+    import json
+
+    pid = conn.execute("SELECT id FROM periods WHERE period_no='26131'").fetchone()["id"]
+    cur = conn.execute(
+        """INSERT INTO plans(period_id, game_type, objective, budget, notes_count,
+                              p_first, p_second, legs_json, created_at)
+           VALUES(?, ?, ?, 64, 1, 0.01, 0.05, ?, datetime('now'))""",
+        (pid, game_type, objective, json.dumps(legs)),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def test_api_plans_returns_legs_detail_for_saved_plan(conn, monkeypatch):
+    monkeypatch.setattr(web_app, "_get_conn", lambda: conn)
+    _seed_saved_plan(conn, [["0"]] + [["3"]] * 13)
+    pid = conn.execute("SELECT id FROM periods WHERE period_no='26131'").fetchone()["id"]
+
+    got = web_app.api_plans(period_id=pid, game_type="sfc14")
+
+    assert got["period_no"] == "26131"
+    assert len(got["plans"]) == 1
+    detail = got["plans"][0]["legs_detail"]
+    assert len(detail) == 14
+    assert detail[0]["home"] == "伯恩茅斯"
+    assert detail[0]["labels"] == ["负"]
+    assert detail[1]["labels"] == ["胜"]
+
+
+def test_api_plans_handles_r9_dict_legs(conn, monkeypatch):
+    """任九的 legs_json 是 {"selected": [...], "legs": [...]} 形态。"""
+    monkeypatch.setattr(web_app, "_get_conn", lambda: conn)
+    _seed_saved_plan(
+        conn,
+        {"selected": [0, 1, 2], "legs": [["3"], ["1"], ["0"]]},
+        game_type="r9",
+    )
+    pid = conn.execute("SELECT id FROM periods WHERE period_no='26131'").fetchone()["id"]
+
+    got = web_app.api_plans(period_id=pid, game_type="r9")
+
+    detail = got["plans"][0]["legs_detail"]
+    # 只展示被选中的场次，且 seq 用 1-based 序号
+    assert [d["seq"] for d in detail] == [1, 2, 3]
+    assert [d["labels"][0] for d in detail] == ["胜", "平", "负"]
+    assert detail[0]["home"] == "伯恩茅斯"
+
+
+def test_api_plans_404_when_none(conn, monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(web_app, "_get_conn", lambda: conn)
+    pid = conn.execute("SELECT id FROM periods WHERE period_no='26131'").fetchone()["id"]
+
+    with pytest.raises(HTTPException) as excinfo:
+        web_app.api_plans(period_id=pid, game_type="sfc14")
+    assert excinfo.value.status_code == 404

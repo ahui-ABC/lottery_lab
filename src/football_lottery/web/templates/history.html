@@ -3,19 +3,110 @@
 {% block content %}
 <h2>历史战绩</h2>
 <p class="hint" id="hint">需先跑 <code>check-draw</code> 后才有数据；当前可能为空。</p>
-<table id="t"><thead><tr><th>期号</th><th>奖级</th><th>奖金合计</th><th>中奖注数</th></tr></thead>
+<p id="totals" class="summary-total"></p>
+<div class="table-scroll">
+<table id="t"><thead><tr><th>期号</th><th>玩法</th><th>方案数</th><th>投入</th><th>奖金</th><th>利润</th><th>中奖注数</th><th>奖级</th></tr></thead>
 <tbody></tbody></table>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <strong id="modal-title"></strong>
+      <button id="modal-close" type="button">关闭</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
+const modal = document.getElementById("modal");
+const modalTitle = document.getElementById("modal-title");
+const modalBody = document.getElementById("modal-body");
+
+function closeModal() { modal.hidden = true; }
+document.getElementById("modal-close").onclick = closeModal;
+modal.addEventListener("click", e => { if (e.target === modal) closeModal(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+const fmtPct = p => p == null ? "-" : (p * 100).toFixed(2) + "%";
+
+// 与「推荐方案」页同一格式：每场一行，队名 + 中文胜平负
+function renderLegsTable(detail) {
+  const table = document.createElement("table");
+  table.className = "hist-legs";
+  detail.forEach(row => {
+    const tr = document.createElement("tr");
+    const seq = document.createElement("td");
+    seq.className = "legs-seq";
+    seq.textContent = row.seq;
+    const teams = document.createElement("td");
+    teams.className = "legs-teams";
+    teams.textContent = row.home && row.away ? `${row.home} vs ${row.away}` : "—";
+    const pick = document.createElement("td");
+    pick.className = "legs-pick" + (row.labels.length > 1 ? " legs-pick-multi" : "");
+    pick.textContent = row.labels.join("");
+    tr.append(seq, teams, pick);
+    table.appendChild(tr);
+  });
+  return table;
+}
+
+async function openPeriodPlans(periodId, periodNo, gameType) {
+  const resp = await fetch(`/api/plans?period_id=${periodId}&game_type=${encodeURIComponent(gameType)}`);
+  if (!resp.ok) {
+    modalTitle.textContent = `期次 ${periodNo}`;
+    modalBody.textContent = "该期次下没有可展示的方案";
+    modal.hidden = false;
+    return;
+  }
+  const data = await resp.json();
+  const plans = data.plans || [];
+  modalTitle.textContent = `期次 ${periodNo} · ${plans.length} 个方案`;
+  modalBody.replaceChildren();
+
+  plans.forEach((plan, i) => {
+    const box = document.createElement("div");
+    box.className = "hist-plan";
+    const head = document.createElement("p");
+    head.className = "hist-plan-head";
+    head.innerHTML = `<strong>方案 ${i + 1}</strong>` +
+      `　注数 ${plan.notes_count}　金额 ¥${plan.amount}` +
+      `　一等奖 ${fmtPct(plan.p_first)}　二等奖 ${fmtPct(plan.p_second)}` +
+      `<span class="hint">　${plan.objective || ""}　${plan.created_at || ""}</span>`;
+    box.appendChild(head);
+    box.appendChild(renderLegsTable(plan.legs_detail || []));
+    modalBody.appendChild(box);
+  });
+  modal.hidden = false;
+}
+
 fetch("/api/history").then(r=>r.json()).then(j=>{
   const tbody = document.querySelector("#t tbody");
-  if (!j.summary.length) return;
-  document.getElementById("hint").textContent = "共 " + j.summary.length + " 条记录";
+  const totals = j.totals || {};
+  const money = value => "¥" + Number(value || 0).toFixed(2);
+  const label = value => ({sfc14: "胜负14", r9: "任九"}[value] || value || "-");
+  document.getElementById("totals").textContent =
+    `总投入 ${money(totals.invested)}，总奖金 ${money(totals.prize)}，总利润 ${money(totals.profit)}`;
+  if (!j.summary || !j.summary.length) return;
+  document.getElementById("hint").textContent =
+    "共 " + j.summary.length + " 条期次/玩法记录（点期号查看具体投注选项）";
   j.summary.forEach(r=>{
     const tr=document.createElement("tr");
-    tr.innerHTML=`<td>${r.period_no}</td><td>${r.tier}</td>
-      <td>¥${(r.amt||0).toFixed(2)}</td><td>${r.n||0}</td>`;
+    [r.period_no, label(r.game_type), r.plans || 0, money(r.invested),
+      money(r.prize), money(r.profit), r.hit_notes || 0,
+      (r.tiers || []).join(", ") || "-"]
+      .forEach((value, idx) => {
+        const td = document.createElement("td");
+        td.textContent = value;
+        if (idx === 0) {
+          td.className = "period-link";
+          td.title = "点击查看投注选项";
+          td.onclick = () => openPeriodPlans(r.period_id, r.period_no, r.game_type);
+        }
+        tr.appendChild(td);
+      });
     tbody.appendChild(tr);
   });
 });
