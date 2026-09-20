@@ -6,8 +6,19 @@
     - 13 场 covered（差 1 场）→ 一等 0，二等 = |S_miss|
     - ≤12 场 covered → 都 0
   任九：全 9 场 covered → 1 注，否则 0
+
+通配场次（`*`）：比赛推迟或中断、且自开赛起 48 小时内未补赛时，官方开奖
+结果以 `*` 占位，该场按 3/1/0 全选计算 —— 即对**所有**投注都算猜中。
+故 `*` 一律视为 covered，不参与"差一场"的失配判定。
 """
 from __future__ import annotations
+
+WILDCARD = "*"
+
+
+def _covered(result_i: str, leg: list[str]) -> bool:
+    """该场是否命中；`*`（推迟未补赛）对任意选择都算命中。"""
+    return result_i == WILDCARD or result_i in leg
 
 
 def hit_counts(legs: list[list[str]], result: list[str]) -> tuple[int, int]:
@@ -19,7 +30,7 @@ def hit_counts(legs: list[list[str]], result: list[str]) -> tuple[int, int]:
     n = len(legs)
     if n != len(result):
         return 0, 0
-    covered = [result[i] in legs[i] for i in range(n)]
+    covered = [_covered(result[i], legs[i]) for i in range(n)]
     k = sum(covered)
     if k == n:
         return 1, sum(len(legs[i]) - 1 for i in range(n))
@@ -33,7 +44,7 @@ def r9_hit(legs: list[list[str]], result: list[str]) -> int:
     """任九只有全对一档：9 场全覆盖才 1 注。"""
     if len(legs) != 9 or len(result) != 9:
         return 0
-    return 1 if all(result[i] in legs[i] for i in range(9)) else 0
+    return 1 if all(_covered(result[i], legs[i]) for i in range(9)) else 0
 
 
 def amount(hit_notes: int, single_prize: float | None) -> float:

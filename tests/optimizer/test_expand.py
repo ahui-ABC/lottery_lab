@@ -62,3 +62,34 @@ def test_r9_hit_miss_one():
     legs = [["3"]] * 9
     res = ["3"] * 8 + ["1"]
     assert winnings.r9_hit(legs, res) == 0
+
+
+# ---- '*' 场次：比赛推迟/中断且 48 小时内未补赛，官方按 3/1/0 全选计算 ----
+def test_hit_counts_treats_star_as_covered():
+    legs = [["3"], ["1"], ["0"]]      # 第 2 场押 '1'，按字面 '*' 不在腿里
+    res = ["3", "*", "0"]
+    first, second = winnings.hit_counts(legs, res)
+    assert first == 1
+    assert second == 0                # Σ(|S_i| - 1) = 0+0+0
+
+
+def test_hit_counts_multiple_stars():
+    legs = [["3", "1"], ["3", "1"], ["3"]]
+    res = ["*", "*", "3"]
+    first, second = winnings.hit_counts(legs, res)
+    assert first == 1
+    assert second == 2                # (2-1)+(2-1)+(1-1)
+
+
+def test_star_can_rescue_second_prize():
+    legs = [["3"], ["3"], ["3"]]
+    res = ["3", "*", "1"]             # 第 3 场押错；第 2 场 '*' 自动算中
+    first, second = winnings.hit_counts(legs, res)
+    assert first == 0
+    assert second == 1                # 唯一未覆盖场是第 3 场，|S_3| = 1
+
+
+def test_r9_hit_treats_star_as_covered():
+    legs = [["3"]] * 9
+    res = ["3"] * 8 + ["*"]
+    assert winnings.r9_hit(legs, res) == 1

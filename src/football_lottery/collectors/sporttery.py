@@ -185,13 +185,16 @@ def parse_draw_results(detail: dict) -> dict | None:
     """官方期次详情 → {results_json, prizes_json}；未开奖返回 None。
 
     产出格式对齐 import_fixtures_csv，避免下游 check-draw 分裂出两套解析：
-    results_json 为逗号分隔的 14 个 0/1/3；prizes_json 形如
+    results_json 为逗号分隔的 14 个 0/1/3/*；prizes_json 形如
     {"first": …, "second": …, "r9": …}（缺失的键不写入）。
-    官方对取消/延期的场次用 '*' 占位，此类赛果视为不完整。
+
+    官方对"推迟或中断、且自开赛起 48 小时内未补赛"的场次以 '*' 占位，
+    该场按 3/1/0 全选计算，因此 '*' 是**合法赛果**，必须保留入库，
+    由 winnings 层按通配处理；只有整期未开奖才返回 None。
     """
     raw = (detail.get("lotteryDrawResult") or "").strip()
     results = [x for x in raw.split() if x]
-    if len(results) != 14 or any(x not in {"0", "1", "3"} for x in results):
+    if len(results) != 14 or any(x not in {"0", "1", "3", "*"} for x in results):
         return None
 
     prizes: dict[str, float] = {}
@@ -296,9 +299,8 @@ def collect_history(
                 reached_cutoff = True
                 break
 
-            # 先解析开奖再决定是否入库：官方对取消/延期的场次用 '*' 占位
-            # （实测 26127、26106 即如此），此类期次赛果不完整，整期跳过，
-            # 保证"入库的期次必有 draw_results"。
+            # 先解析开奖再决定是否入库：未开奖的期次不写库。
+            # 含 '*' 的期次照常入库 —— 那些场次按全选计算（见 parse_draw_results）。
             draw = parse_draw_results(item)
             if not draw:
                 skipped += 1

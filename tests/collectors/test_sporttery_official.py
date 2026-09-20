@@ -160,13 +160,23 @@ def test_parse_draw_results_returns_none_when_undrawn():
     assert sporttery.parse_draw_results(item) is None
 
 
-def test_parse_draw_results_returns_none_when_result_has_placeholder():
-    """官方对取消/延期的场次用 '*' 占位，此类赛果不得入库。"""
+def test_parse_draw_results_preserves_wildcard():
+    """官方对推迟/中断且 48 小时未补赛的场次用 '*' 占位。
+
+    该场按 3/1/0 全选计算，因此赛果必须入库（而非丢弃整期），
+    由 winnings 层按通配处理。
+    """
     page = _fixture("sporttery_history_90.json")["value"]["list"]
     starred = [it for it in page if "*" in (it.get("lotteryDrawResult") or "")]
     assert starred, "fixture 应至少含一条带 '*' 的期次"
+
     for item in starred:
-        assert sporttery.parse_draw_results(item) is None
+        got = sporttery.parse_draw_results(item)
+        assert got is not None
+        parts = got["results_json"].split(",")
+        assert len(parts) == 14
+        assert "*" in parts
+        assert all(p in {"0", "1", "3", "*"} for p in parts)
 
 
 # ---- Task 4: 入库层 ---------------------------------------------------------------
@@ -252,10 +262,10 @@ def test_upsert_period_demotes_previous_current():
     assert rows == {"26131": "historical", "26132": "current"}
 
 
-def test_collect_history_writes_only_complete_periods(monkeypatch):
-    """fixture 中 26127/26106 的赛果含 '*'（取消场次），整期跳过。
+def test_collect_history_ingests_wildcard_periods(monkeypatch):
+    """含 '*'（推迟未补赛）的期次同样入库，赛果保留通配符。
 
-    数字 28/2 取自 fixtures/sporttery_history_90.json（共 30 期）。
+    数字取自 fixtures/sporttery_history_90.json（共 30 期，其中 2 期含 '*'）。
     若重新抓取 fixture 导致期数变化，按实际值调整断言。
     """
     conn = _memory_db()
@@ -270,18 +280,23 @@ def test_collect_history_writes_only_complete_periods(monkeypatch):
 
     out = sporttery.collect_history(conn, years=4)
 
-    assert out["periods_saved"] == 28
-    assert out["skipped"] == 2
-    assert out["periods_saved"] + out["skipped"] == total
+    assert out["periods_saved"] == total
+    assert out["skipped"] == 0
 
     # 入库的期次必有开奖（对阵 / 期次 / 开奖 三者数量一致）
-    assert conn.execute("SELECT COUNT(*) c FROM periods").fetchone()["c"] == 28
-    assert conn.execute("SELECT COUNT(*) c FROM draw_results").fetchone()["c"] == 28
-    assert conn.execute("SELECT COUNT(*) c FROM period_matches").fetchone()["c"] == 28 * 14
+    assert conn.execute("SELECT COUNT(*) c FROM periods").fetchone()["c"] == total
+    assert conn.execute("SELECT COUNT(*) c FROM draw_results").fetchone()["c"] == total
+    assert conn.execute("SELECT COUNT(*) c FROM period_matches").fetchone()["c"] == total * 14
     assert conn.execute("SELECT COUNT(*) c FROM periods WHERE status='current'").fetchone()["c"] == 0
 
     prizes = conn.execute("SELECT prizes_json FROM draw_results LIMIT 1").fetchone()["prizes_json"]
     assert prizes and "first" in json.loads(prizes)
+
+    wildcard_rows = [
+        r["results_json"] for r in conn.execute("SELECT results_json FROM draw_results")
+        if "*" in r["results_json"]
+    ]
+    assert len(wildcard_rows) == 2
 
 
 def test_collect_history_counts_short_match_lists_as_skipped(monkeypatch):
@@ -298,6 +313,6 @@ def test_collect_history_counts_short_match_lists_as_skipped(monkeypatch):
 
     out = sporttery.collect_history(conn, years=4)
 
-    # 1 条对阵残缺 + 2 条赛果含 '*' = 3
-    assert out["skipped"] == 3
-    assert out["periods_saved"] == len(page["list"]) - 3
+    # 仅 1 条对阵残缺被跳过；含 '*' 的期次不再跳过
+    assert out["skipped"] == 1
+    assert out["periods_saved"] == len(page["list"]) - 1

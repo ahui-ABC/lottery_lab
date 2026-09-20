@@ -83,7 +83,8 @@ def test_collect_draws_writes_history(monkeypatch, conn, capsys):
 
     assert cli.main(["collect-draws", "--years", "4"]) == 0
 
-    assert conn.execute("SELECT COUNT(*) c FROM draw_results").fetchone()["c"] == 28
+    # fixture 共 30 期，含 '*' 的期次也入库（官方按全选计算）
+    assert conn.execute("SELECT COUNT(*) c FROM draw_results").fetchone()["c"] == 30
     out = json.loads(capsys.readouterr().out)
-    assert out["periods_saved"] == 28
-    assert out["skipped"] == 2
+    assert out["periods_saved"] == 30
+    assert out["skipped"] == 0
