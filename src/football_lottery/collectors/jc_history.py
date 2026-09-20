@@ -121,8 +121,13 @@ def parse_fixed_bonus(value: dict) -> dict:
 
 
 # ---- 入库层 ----------------------------------------------------------------------
-def _upsert_matches(conn: sqlite3.Connection, rows: list[dict]) -> None:
-    """比赛列表写入（一个事务）。不清空 result_* 与已有赔率。"""
+def upsert_match_rows(conn: sqlite3.Connection, rows: list[dict]) -> None:
+    """比赛列表写入（一个事务）。不清空 result_* 与已有赔率。
+
+    公开给 `jc_predict` 复用：当期预测的比赛可能不在按日期回填的集合里
+    （`getUniformMatchResultV1` 按比赛日、`getMatchCalculatorV1` 按销售日），
+    预测时需要把比赛基础信息补进 `jc_matches`，否则对奖拿不到赛果。
+    """
     if not rows:
         return
     now = datetime.now().isoformat(timespec="seconds")
@@ -206,7 +211,7 @@ def sync_day(conn, day: str, workers: int = 4, delay: float = 0.2,
     if not matches:
         return {"date": day, "matches": 0, "odds_rows": 0, "failed": 0, "failed_ids": []}
 
-    _upsert_matches(conn, matches)
+    upsert_match_rows(conn, matches)
 
     captured_at = datetime.now().isoformat(timespec="seconds")
     odds_rows = 0

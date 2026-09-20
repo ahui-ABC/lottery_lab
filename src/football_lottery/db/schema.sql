@@ -123,6 +123,27 @@ CREATE TABLE IF NOT EXISTS jc_sync_log (
   failed_match_ids TEXT,
   finished_at TEXT);
 
+-- 竞彩当期预测与对奖（见 docs/superpowers/specs/2026-09-20-jc-prediction-design.md）
+-- 每条 method 一行：并行记录各路径，让数据淘汰弱路径，避免黑盒综合。
+CREATE TABLE IF NOT EXISTS jc_predictions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  match_id INTEGER NOT NULL,
+  predicted_on TEXT NOT NULL,
+  pool TEXT NOT NULL,
+  method TEXT NOT NULL,
+  pick TEXT,
+  odds REAL,
+  prob REAL,
+  -- 按选项对齐的向量（JSON）：先验权重都是假设，存全了才能离线重新拟合
+  prob_json TEXT, first_odds_json TEXT, latest_odds_json TEXT,
+  drift_json TEXT, vol_json TEXT,
+  change_count INTEGER,
+  provenance_json TEXT,
+  result TEXT, hit INTEGER, scored_at TEXT,
+  UNIQUE(match_id, pool, predicted_on, method));
+CREATE INDEX IF NOT EXISTS idx_jc_pred_date ON jc_predictions(predicted_on);
+CREATE INDEX IF NOT EXISTS idx_jc_pred_pending ON jc_predictions(scored_at);
+
 CREATE TABLE IF NOT EXISTS model_versions (
   version TEXT PRIMARY KEY, model_type TEXT NOT NULL,
   params_json TEXT, metrics_json TEXT, trained_at TEXT);

@@ -262,6 +262,21 @@ def parse_jc_odds(payload: dict) -> list[dict]:
     return out
 
 
+def parse_jc_match_ids(payload: dict) -> list[int]:
+    """从当期竞彩列表里取出 matchId，供 getFixedBonusV1 逐场取赔率。
+
+    注意与 `parse_jc_odds` 的区别：后者返回队名与赔率（用于匹配胜负彩期次），
+    **不保留 matchId**；这里专门取 ID。
+    """
+    out: list[int] = []
+    for group in (payload.get("value") or {}).get("matchInfoList") or []:
+        for item in group.get("subMatchList") or []:
+            match_id = item.get("matchId")
+            if match_id:
+                out.append(int(match_id))
+    return out
+
+
 # ---- 解析层（纯函数） ------------------------------------------------------------
 def _norm_team_name(value: str | None) -> str:
     """统一空白：折叠连续空格、去首尾，消除官方数据的全角/填充空格。"""

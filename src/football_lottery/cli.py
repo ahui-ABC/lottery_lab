@@ -8,7 +8,8 @@ import argparse
 import io
 import os
 import sys
-from datetime import datetime
+import time
+from datetime import date, datetime
 from pathlib import Path
 
 # 让 print 在 cp936 Windows 控制台也能输出中文（不影响文件 IO）
@@ -294,6 +295,151 @@ def cmd_collect_jc_history(args, cfg: dict) -> int:
     return 0 if out["failed"] == 0 else 1
 
 
+def _match_meta_from_calculator(payload: dict) -> list[dict]:
+    """`getMatchCalculatorV1` 的 payload → jc_matches 行（只取基础信息，不含赛果）。"""
+    rows = []
+    for group in (payload.get("value") or {}).get("matchInfoList") or []:
+        for item in group.get("subMatchList") or []:
+            match_id = item.get("matchId")
+            if not match_id:
+                continue
+            had = item.get("had") or {}
+            rows.append({
+                "match_id": int(match_id),
+                "match_date": (item.get("matchDate") or "")[:10] or None,
+                "match_num": item.get("matchNumStr") or item.get("matchNum"),
+                "league_id": item.get("leagueId"),
+                # getMatchCalculatorV1 用的是 leagueAllName/leagueAbbName，
+                # 而 getUniformMatchResultV1 用的是 leagueName —— 字段名不同
+                "league_name": (item.get("leagueAllName") or item.get("leagueAbbName")
+                                or item.get("leagueName")),
+                "home_team": item.get("homeTeamAllName") or item.get("homeTeamAbbName"),
+                "away_team": item.get("awayTeamAllName") or item.get("awayTeamAbbName"),
+                "home_team_id": item.get("homeTeamId"),
+                "away_team_id": item.get("awayTeamId"),
+                "had_h": _num_or_none(had.get("h")),
+                "had_d": _num_or_none(had.get("d")),
+                "had_a": _num_or_none(had.get("a")),
+                "goal_line": item.get("goalLine") or None,
+            })
+    return rows
+
+
+def _num_or_none(value):
+    try:
+        return float(str(value).strip()) if str(value).strip() else None
+    except (TypeError, ValueError):
+        return None
+
+
+def cmd_predict_jc(args, cfg: dict) -> int:
+    """对竞彩比赛预测并存档。默认拉当期实时数据；--date 走重放（读库不联网）。"""
+    from football_lottery.collectors import jc_history, sporttery
+    from football_lottery.models import jc_predict
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    conn = _connect(cfg)
+    day = args.date or date.today().isoformat()
+
+    if args.date:
+        # 重放：只用已存档的赔率，不受接口时效影响
+        ids = jc_predict.match_ids_on(conn, day)
+        if not ids:
+            print(f"{day} 无已存档的赔率数据；先跑 collect-jc-history 或 collect-odds。",
+                  file=sys.stderr)
+            return 2
+        total = 0
+        for mid in ids:
+            total += jc_predict.predict_match(
+                conn, mid, jc_predict.load_odds_by_pool(conn, mid), day)
+        print(json.dumps({"mode": "replay", "date": day, "matches": len(ids),
+                          "rows": total}, ensure_ascii=False))
+        return 0
+
+    payload = sporttery.fetch_jc_odds()
+    match_ids = sporttery.parse_jc_match_ids(payload)
+    if not match_ids:
+        print("当期无在售竞彩比赛（休赛日？）")
+        return 0
+
+    # 当期比赛的 matchId 未必在 jc_matches 里：回填按**比赛日**取数
+    # （getUniformMatchResultV1），而这里是**销售日**（getMatchCalculatorV1），
+    # 两者集合不同。缺了基础信息，score-jc 就查不到队名与赛果。
+    jc_history.upsert_match_rows(conn, _match_meta_from_calculator(payload))
+
+    rows = 0
+    failed = 0
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        futures = {pool.submit(sporttery.fetch_fixed_bonus, mid): mid
+                   for mid in match_ids}
+        for future in as_completed(futures):
+            mid = futures[future]
+            try:
+                value = future.result()
+            except sporttery.CollectorError:
+                failed += 1
+                continue
+            if not value.get("oddsHistory"):
+                continue
+            if args.delay:
+                time.sleep(args.delay)
+            rows += jc_predict.predict_match(
+                conn, mid, jc_predict.odds_by_pool_from_value(value), day)
+
+    print(json.dumps({"mode": "live", "date": day, "matches": len(match_ids),
+                      "rows": rows, "failed": failed}, ensure_ascii=False))
+    return 0
+
+
+def cmd_score_jc(args, cfg: dict) -> int:
+    """对未对奖的竞彩预测打分。优先读已存档赛果，缺失才联网补拉。"""
+    from football_lottery.collectors import jc_history, sporttery
+    from football_lottery.models import jc_predict
+
+    conn = _connect(cfg)
+
+    # 已有存档赛果的先对（不联网）
+    out = jc_predict.score_pending(conn, predicted_on=args.date)
+
+    # 仍未对奖、且 jc_matches 里也没有赛果的 → 联网补拉
+    where = "p.scored_at IS NULL AND p.pick IS NOT NULL"
+    params: list = []
+    if args.date:
+        where += " AND p.predicted_on=?"
+        params.append(args.date)
+
+    need = [r["match_id"] for r in conn.execute(
+        f"""SELECT DISTINCT p.match_id FROM jc_predictions p
+            LEFT JOIN jc_matches m ON m.match_id = p.match_id
+            WHERE {where}
+              AND m.result_had IS NULL AND m.result_hhad IS NULL
+              AND m.result_crs IS NULL AND m.result_ttg IS NULL
+              AND m.result_hafu IS NULL""", params)]
+
+    fetched = {}
+    for mid in need:
+        try:
+            value = sporttery.fetch_fixed_bonus(mid)
+        except sporttery.CollectorError:
+            continue
+        parsed = jc_history.parse_fixed_bonus(value)
+        if parsed["results"]:
+            fetched[mid] = parsed["results"]
+            columns = ", ".join(f"{k}=?" for k in parsed["results"])
+            conn.execute(f"UPDATE jc_matches SET {columns} WHERE match_id=?",
+                         [*parsed["results"].values(), mid])
+    if fetched:
+        conn.commit()
+        out2 = jc_predict.score_pending(conn, predicted_on=args.date, pending=fetched)
+        out = {"scored": out["scored"] + out2["scored"],
+               "skipped": out2["skipped"]}
+
+    print(json.dumps({"date": args.date, **out,
+                      "summary": jc_predict.summary_by_method(conn)},
+                     ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_train(args, cfg: dict) -> int:
     from football_lottery.models import pipeline
     conn = _connect(cfg)
@@ -450,6 +596,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--file", help="本地开奖 CSV（与 import-fixtures 格式相同）")
     s.add_argument("--years", type=int, default=4, help="回溯年数；默认 4 年")
 
+    # predict-jc / score-jc
+    s = sub.add_parser("predict-jc", help="对竞彩比赛预测并存档（各路径并行记录）")
+    s.add_argument("--date", help="重放模式：用已存档赔率补跑该日，不联网")
+    s.add_argument("--workers", type=int, default=8, help="并发线程数")
+    s.add_argument("--delay", type=float, default=0.05, help="每个 worker 的请求间隔（秒）")
+
+    s = sub.add_parser("score-jc", help="对未对奖的竞彩预测打分")
+    s.add_argument("--date", help="只对指定预测日的")
+
     # collect-jc-history
     s = sub.add_parser("collect-jc-history", help="回填竞彩历史（比赛列表 + 5 玩法赔率变化）")
     s.add_argument("--from", dest="from_date", help="起始日期 YYYY-MM-DD；默认 2021-01-01")
@@ -528,6 +683,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_collect_odds(args, cfg)
     if args.cmd == "collect-jc-history":
         return cmd_collect_jc_history(args, cfg)
+    if args.cmd == "predict-jc":
+        return cmd_predict_jc(args, cfg)
+    if args.cmd == "score-jc":
+        return cmd_score_jc(args, cfg)
     if args.cmd == "import-fixtures":
         return cmd_import_fixtures(args, cfg)
     if args.cmd == "map-fixtures":
