@@ -383,6 +383,131 @@ def backtest_parlay_box(
     }
 
 
+def day_legs(conn: sqlite3.Connection, day: str, pool: str,
+             bet_pick: str = "market") -> list[dict]:
+    """该日该玩法的候选场次（按市场概率降序），含 pick / odds / prob / hit。
+
+    行情与赛果都取自 `jc_odds_history` + `jc_matches`（**不是** `jc_predictions`
+    —— 后者只有当期数据，历史回测用不了）。
+    """
+    column = RESULT_COLUMN.get(pool)
+    if not column:
+        return []
+    legs = []
+    for row in conn.execute(
+        f"""SELECT match_id, {column} AS res FROM jc_matches
+            WHERE match_date = ? AND {column} IS NOT NULL""", (day,)):
+        entries = []
+        for s in conn.execute(
+            """SELECT odds_json, update_date, update_time, goal_line
+               FROM jc_odds_history WHERE match_id=? AND pool=? ORDER BY seq""",
+            (row["match_id"], pool)):
+            try:
+                payload = json.loads(s["odds_json"])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            e = dict(payload)
+            e.update({"updateDate": s["update_date"], "updateTime": s["update_time"],
+                      "goalLine": s["goal_line"]})
+            entries.append(e)
+        sig = jc_predict._signals(entries)
+        if not sig:
+            continue
+        chosen = next((r for r in jc_predict.analyze_match({pool: sig})
+                       if r["method"] == bet_pick), None)
+        if not chosen or not chosen["pick"]:
+            continue
+        normalized = jc_predict.normalize_combination(pool, row["res"])
+        if normalized is None:
+            continue
+        legs.append({
+            "pool": pool,
+            "match_id": row["match_id"],
+            "pick": chosen["pick"],
+            "odds": float(chosen["odds"]),
+            "prob": chosen["prob"] or 0.0,
+            "hit": normalized == chosen["pick"],
+        })
+    legs.sort(key=lambda x: -x["prob"])
+    return legs
+
+
+def backtest_mixed_box(
+    conn: sqlite3.Connection,
+    picks_per_pool: dict[str, int],
+    unit: float = 2.0,
+    min_combo: int = 2,
+    max_days: int | None = None,
+) -> dict:
+    """回测**混合过关**：从多个玩法各选若干场，混在同一组合池里串。
+
+    与 `backtest_parlay_box` 的区别：后者每个玩法**独立**串（让球只和让球串）。
+    本函数把不同玩法的场次混在一起。
+
+    动机：低赔率玩法（让球 @1.44~1.52）独立串时，2 串 1 的赔率积仅 2.1，
+    远不足以覆盖 4~5 场组合的成本（保本需中 4 场）。混入高赔率玩法
+    （比分 @5~6）可抬高短串赔率，降低保本门槛。
+
+    选场仍按各玩法「市场概率最高」（该规则已由 `backtest_parlay_box` 验证）。
+    """
+    picks_per_pool = {p: n for p, n in picks_per_pool.items() if p in RESULT_COLUMN}
+    if not picks_per_pool:
+        return {}
+
+    days = [r["match_date"] for r in conn.execute(
+        """SELECT DISTINCT match_date FROM jc_matches
+           WHERE match_date IS NOT NULL ORDER BY match_date""")]
+    if max_days:
+        days = days[-max_days:]
+
+    totals = {"days": 0, "invested": 0.0, "returned": 0.0, "winning_days": 0,
+              "hits_by_size": defaultdict(int), "best_day": None}
+    for day in days:
+        legs = []
+        for pool, want in picks_per_pool.items():
+            legs.extend(day_legs(conn, day, pool)[:want])
+        if len(legs) < min_combo:
+            continue
+
+        day_return = 0.0
+        day_bets = 0
+        for k in range(min_combo, len(legs) + 1):
+            for combo in _combinations(legs, k):
+                day_bets += 1
+                if all(x["hit"] for x in combo):
+                    product = 1.0
+                    for x in combo:
+                        product *= x["odds"]
+                    day_return += product * unit
+                    totals["hits_by_size"][k] += 1
+
+        totals["days"] += 1
+        totals["invested"] += day_bets * unit
+        totals["returned"] += day_return
+        if day_return > day_bets * unit:
+            totals["winning_days"] += 1
+        if totals["best_day"] is None or day_return > totals["best_day"]:
+            totals["best_day"] = day_return
+
+    n = totals["days"]
+    invested = totals["invested"]
+    returned = totals["returned"]
+    return {
+        "picks_per_pool": picks_per_pool,
+        "n_legs": sum(picks_per_pool.values()),
+        "days": n,
+        "invested": round(invested, 2),
+        "returned": round(returned, 2),
+        "return_rate": (returned / invested) if invested else None,
+        "roi": ((returned - invested) / invested) if invested else None,
+        "winning_days": totals["winning_days"],
+        "win_day_rate": (totals["winning_days"] / n) if n else None,
+        "avg_bet_per_day": round(invested / n, 2) if n else 0,
+        "hits_by_size": dict(totals["hits_by_size"]),
+        "best_day": totals["best_day"],
+    }
+
+
 def compare_to_baseline(result: dict, baseline: float = BASELINE_RETURN_RATE) -> list[dict]:
     """把 ROI 与「随机投注的期望」（= -抽水）对比，排出真正的增量。"""
     rows = []
