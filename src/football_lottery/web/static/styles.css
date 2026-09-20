@@ -41,6 +41,17 @@ textarea { font-family: monospace; font-size: 0.9em; }
 .daemon-panel button:disabled { opacity: 0.45; cursor: not-allowed; }
 #daemon-log { max-height: 26em; overflow: auto; margin-top: 0.4em; }
 
+/* 竞彩串关方案 */
+.jc-plan { border: 1px solid #e5e5e5; border-radius: 5px; padding: 0.7em 1em;
+  margin: 0 0 1em; background: #fcfcfc; }
+.jc-plan-head { margin: 0 0 0.5em; }
+.jc-legs { width: auto; min-width: 30em; margin: 0 0 0.4em; }
+.jc-legs td { padding: 0.22em 0.9em 0.22em 0; border: none; line-height: 1.5; }
+.jc-legs tr + tr td { border-top: 1px solid #f2f2f2; }
+.jc-odds { font-weight: 600; color: #16734a; }
+.jc-plan details summary { cursor: pointer; color: #06c; font-size: 0.9em; }
+.jc-plan details pre { max-height: 18em; overflow: auto; font-size: 0.85em; }
+
 /* 历史战绩：点击期号查看投注选项 */
 .period-link { color: #06c; cursor: pointer; font-weight: 600; }
 .period-link:hover { text-decoration: underline; }

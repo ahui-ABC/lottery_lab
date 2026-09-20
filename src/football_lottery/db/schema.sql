@@ -144,6 +144,24 @@ CREATE TABLE IF NOT EXISTS jc_predictions (
 CREATE INDEX IF NOT EXISTS idx_jc_pred_date ON jc_predictions(predicted_on);
 CREATE INDEX IF NOT EXISTS idx_jc_pred_pending ON jc_predictions(scored_at);
 
+-- 竞彩串关方案（回测得出的最优玩法：按市场概率选场 + 多重串关组合）
+CREATE TABLE IF NOT EXISTS jc_parlay_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_date TEXT NOT NULL,
+  pool TEXT NOT NULL,
+  n_legs INTEGER NOT NULL,
+  unit REAL NOT NULL,
+  min_combo INTEGER NOT NULL,
+  legs_json TEXT NOT NULL,        -- [{match_id, home, away, pick, odds, prob, hit}]
+  bets_json TEXT NOT NULL,        -- [{legs:[match_id...], size, amount}]
+  invested REAL,
+  returned REAL,
+  winning_bets INTEGER,
+  scored_at TEXT,
+  created_at TEXT,
+  UNIQUE(plan_date, pool));
+CREATE INDEX IF NOT EXISTS idx_jc_parlay_date ON jc_parlay_plans(plan_date);
+
 CREATE TABLE IF NOT EXISTS model_versions (
   version TEXT PRIMARY KEY, model_type TEXT NOT NULL,
   params_json TEXT, metrics_json TEXT, trained_at TEXT);

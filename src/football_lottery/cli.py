@@ -391,6 +391,60 @@ def cmd_predict_jc(args, cfg: dict) -> int:
     return 0
 
 
+def cmd_plan_jc(args, cfg: dict) -> int:
+    """生成竞彩串关方案：按市场概率选场 + 多重串关组合。
+
+    选场规则与场次数均来自回测结论（见 models/jc_parlay.py 的模块说明）。
+    依赖同日的 jc_predictions（先跑 predict-jc）。
+    """
+    from football_lottery.models import jc_parlay
+
+    conn = _connect(cfg)
+    day = args.date or date.today().isoformat()
+
+    pools = jc_parlay.DEFAULT_POOL_CONFIG
+    if args.pool:
+        if args.pool not in pools:
+            print(f"未知玩法 {args.pool}；可选：{', '.join(pools)}", file=sys.stderr)
+            return 2
+        pools = {args.pool: pools[args.pool]}
+
+    made = []
+    for pool, n_legs in pools.items():
+        plan = jc_parlay.build_plan(
+            conn, day, pool, n_legs,
+            unit=args.unit or jc_parlay.DEFAULT_UNIT,
+            min_combo=args.min_combo or jc_parlay.DEFAULT_MIN_COMBO)
+        if plan is None:
+            made.append({"pool": pool, "skipped": f"可用场次不足 {n_legs}"})
+            continue
+        plan_id = jc_parlay.save_plan(conn, plan)
+        made.append({
+            "pool": pool, "plan_id": plan_id, "legs": len(plan["legs"]),
+            "bets": len(plan["bets"]),
+            "invested": len(plan["bets"]) * plan["unit"],
+            "picks": [
+                {"match": f"{x['home']} vs {x['away']}", "pick": x["pick"],
+                 "odds": x["odds"], "prob": round(x["prob"] or 0, 4)}
+                for x in plan["legs"]
+            ],
+        })
+    print(json.dumps({"date": day, "plans": made}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def cmd_jc_summary(args, cfg: dict) -> int:
+    """竞彩串关方案的历史盈亏。"""
+    from football_lottery.models import jc_parlay
+
+    conn = _connect(cfg)
+    out = jc_parlay.summary(conn, pool=args.pool)
+    if args.recent:
+        out["recent"] = jc_parlay.recent_plans(conn, limit=args.recent)
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_score_jc(args, cfg: dict) -> int:
     """对未对奖的竞彩预测打分。优先读已存档赛果，缺失才联网补拉。"""
     from football_lottery.collectors import jc_history, sporttery
@@ -434,7 +488,11 @@ def cmd_score_jc(args, cfg: dict) -> int:
         out = {"scored": out["scored"] + out2["scored"],
                "skipped": out2["skipped"]}
 
-    print(json.dumps({"date": args.date, **out,
+    # 串关方案一并对奖（赛果未出的会被跳过）
+    from football_lottery.models import jc_parlay
+    plans_out = jc_parlay.score_plans(conn, day=args.date)
+
+    print(json.dumps({"date": args.date, **out, "parlay_plans": plans_out,
                       "summary": jc_predict.summary_by_method(conn)},
                      ensure_ascii=False, indent=2))
     return 0
@@ -602,8 +660,19 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--workers", type=int, default=8, help="并发线程数")
     s.add_argument("--delay", type=float, default=0.05, help="每个 worker 的请求间隔（秒）")
 
-    s = sub.add_parser("score-jc", help="对未对奖的竞彩预测打分")
+    s = sub.add_parser("score-jc", help="对未对奖的竞彩预测打分（含串关方案）")
     s.add_argument("--date", help="只对指定预测日的")
+
+    # plan-jc / jc-summary
+    s = sub.add_parser("plan-jc", help="生成竞彩串关方案（按市场概率选场 + 多重组合）")
+    s.add_argument("--date", help="指定日期；默认今天")
+    s.add_argument("--pool", help="只做某个玩法（默认全部：hhad/crs/hafu）")
+    s.add_argument("--unit", type=float, help="每注金额（元）；默认 2")
+    s.add_argument("--min-combo", type=int, dest="min_combo", help="最小串关数；默认 2")
+
+    s = sub.add_parser("jc-summary", help="竞彩串关方案的历史盈亏")
+    s.add_argument("--pool", help="只统计某个玩法")
+    s.add_argument("--recent", type=int, help="附带最近 N 条方案明细")
 
     # collect-jc-history
     s = sub.add_parser("collect-jc-history", help="回填竞彩历史（比赛列表 + 5 玩法赔率变化）")
@@ -687,6 +756,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_predict_jc(args, cfg)
     if args.cmd == "score-jc":
         return cmd_score_jc(args, cfg)
+    if args.cmd == "plan-jc":
+        return cmd_plan_jc(args, cfg)
+    if args.cmd == "jc-summary":
+        return cmd_jc_summary(args, cfg)
     if args.cmd == "import-fixtures":
         return cmd_import_fixtures(args, cfg)
     if args.cmd == "map-fixtures":

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}竞彩方案{% endblock %}
+{% block content %}
+<h2>竞彩串关方案</h2>
+<p class="hint">
+  选场规则与场次数来自 <strong>1731 期历史回测</strong>：按「市场概率最高」选场，
+  同时下注所有 2 串 1 及以上的组合。
+  <br>
+  回测实测返还率：让球 75.3% / 比分 75.1% / 半全场 64.6% ——
+  <strong>长期仍是负期望</strong>（竞彩抽水 12%–31% 决定），请当作娱乐而非投资。
+</p>
+
+<h3>历史盈亏</h3>
+<div id="jc-totals" class="summary-total"></div>
+<table id="jc-summary"><thead><tr>
+  <th>玩法</th><th>期数</th><th>投入</th><th>返还</th><th>盈亏</th><th>返还率</th><th>中奖注数</th>
+</tr></thead><tbody></tbody></table>
+
+<h3>最近方案</h3>
+<div id="jc-plans"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const money = v => v == null ? "-" : "¥" + Number(v).toFixed(2);
+const pct = v => v == null ? "-" : (v * 100).toFixed(1) + "%";
+const poolLabel = p => ({hhad: "让球胜平负", had: "胜平负", crs: "比分",
+                         hafu: "半全场", ttg: "总进球"}[p] || p);
+
+async function loadSummary() {
+  const j = await fetch("/api/jc/summary").then(r => r.json());
+  const t = j.total || {};
+  document.getElementById("jc-totals").textContent =
+    `共 ${t.plans || 0} 期，投入 ${money(t.invested)}，返还 ${money(t.returned)}，` +
+    `盈亏 ${money(t.profit)}（返还率 ${pct(t.return_rate)}）`;
+  const tbody = document.querySelector("#jc-summary tbody");
+  tbody.replaceChildren();
+  Object.keys(j.by_pool || {}).sort().forEach(pool => {
+    const v = j.by_pool[pool];
+    const tr = document.createElement("tr");
+    [poolLabel(pool), v.plans, money(v.invested), money(v.returned),
+     money(v.profit), pct(v.return_rate), v.winning_bets]
+      .forEach(x => { const td = document.createElement("td"); td.textContent = x; tr.appendChild(td); });
+    tbody.appendChild(tr);
+  });
+}
+
+async function loadPlans() {
+  const j = await fetch("/api/jc/plans").then(r => r.json());
+  const box = document.getElementById("jc-plans");
+  box.replaceChildren();
+  (j.plans || []).forEach(p => {
+    const card = document.createElement("div");
+    card.className = "jc-plan";
+
+    const head = document.createElement("p");
+    head.className = "jc-plan-head";
+    head.innerHTML = `<strong>${p.plan_date}</strong>　${poolLabel(p.pool)}` +
+      `　${p.n_legs} 场 → <b>${p.bets.length}</b> 注（${money(p.invested != null ? p.invested : p.bets.length * p.unit)}）` +
+      (p.scored ? `　返还 <b>${money(p.returned)}</b>　中奖 ${p.winning_bets} 注` : `　<span class="hint">待开奖</span>`);
+    card.appendChild(head);
+
+    const table = document.createElement("table");
+    table.className = "jc-legs";
+    p.legs.forEach((leg, i) => {
+      const tr = document.createElement("tr");
+      const seq = document.createElement("td");
+      seq.className = "legs-seq";
+      seq.textContent = i + 1;
+      const teams = document.createElement("td");
+      teams.className = "legs-teams";
+      teams.textContent = `${leg.home} vs ${leg.away}`;
+      const pick = document.createElement("td");
+      pick.className = "legs-pick";
+      pick.textContent = leg.pick;
+      const odds = document.createElement("td");
+      odds.className = "jc-odds";
+      odds.textContent = "@" + leg.odds;
+      const prob = document.createElement("td");
+      prob.className = "hint";
+      prob.textContent = "p=" + (leg.prob == null ? "-" : (leg.prob * 100).toFixed(1) + "%");
+      const mark = document.createElement("td");
+      if (leg.hit === true) { mark.textContent = "✓"; mark.className = "mapped"; }
+      else if (leg.hit === false) { mark.textContent = "✗"; mark.className = "warning"; }
+      tr.append(seq, teams, pick, odds, prob, mark);
+      table.appendChild(tr);
+    });
+    card.appendChild(table);
+
+    // 组合清单（折叠，默认收起 4 场以上）
+    if (p.bets.length) {
+      const det = document.createElement("details");
+      const sum = document.createElement("summary");
+      sum.textContent = `查看 ${p.bets.length} 注组合`;
+      det.appendChild(sum);
+      const pre = document.createElement("pre");
+      pre.className = "printable";
+      pre.textContent = p.bets.map(b =>
+        `${b.size}串1　${b.legs.join("×")}　${money(b.amount)}`).join("\n");
+      det.appendChild(pre);
+      card.appendChild(det);
+    }
+    box.appendChild(card);
+  });
+  if (!(j.plans || []).length) box.textContent = "暂无方案；先跑 plan-jc。";
+}
+
+loadSummary().catch(e => { document.getElementById("jc-totals").textContent = "加载失败：" + e; });
+loadPlans().catch(() => { document.getElementById("jc-plans").textContent = "加载失败"; });
+</script>
+{% endblock %}

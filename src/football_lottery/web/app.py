@@ -92,6 +92,29 @@ def page_collect(request: Request):
     return templates.TemplateResponse(request, "collect.html", {})
 
 
+@app.get("/jc", response_class=HTMLResponse)
+def page_jc(request: Request):
+    return templates.TemplateResponse(request, "jc.html", {})
+
+
+@app.get("/api/jc/plans")
+def api_jc_plans(limit: int = 12):
+    """最近的串关方案（含选场明细与组合数）。"""
+    from football_lottery.models import jc_parlay
+
+    conn = _get_conn()
+    return {"plans": jc_parlay.recent_plans(conn, limit=limit)}
+
+
+@app.get("/api/jc/summary")
+def api_jc_summary():
+    """串关方案的历史盈亏汇总。"""
+    from football_lottery.models import jc_parlay
+
+    conn = _get_conn()
+    return jc_parlay.summary(conn)
+
+
 @app.get("/api/daemon/status")
 def api_daemon_status():
     """采集守护进程状态 + 快照概况。"""
