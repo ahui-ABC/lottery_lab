@@ -20,7 +20,7 @@
 0.4 0.3 0.3
 ..."></textarea>
 <div id="result"></div>
-<pre id="rows" class="printable"></pre>
+<div id="legs" class="printable"></div>
 <button onclick="window.print()">打印</button>
 {% endblock %}
 {% block scripts %}
@@ -51,10 +51,31 @@ async function solve() {
   const fmtPct = p => p == null ? "-" : (p * 100).toFixed(2) + "%";
   document.getElementById("result").innerHTML =
     `<p>注数 <b>${r.notes_count}</b>　金额 ¥<b>${r.amount}</b>　` +
-    `一等奖 ${fmtPct(r.p_first)}　二等奖 ${fmtPct(r.p_second)}</p>
-     <p>每场选择：` + r.legs.map((l,i)=>`<code>${i+1}.${(l||[]).join("")||"—"}</code>`).join(" ")
-    + "</p>";
-  document.getElementById("rows").textContent = (r.rows || []).join("\n");
+    `一等奖 ${fmtPct(r.p_first)}　二等奖 ${fmtPct(r.p_second)}</p>`;
+  renderLegs(r.legs_detail || []);
+}
+
+// 每场一行：队名 + 中文胜平负。双选/三选并列在同一行，不展开成多注。
+function renderLegs(detail) {
+  const box = document.getElementById("legs");
+  if (!detail.length) { box.replaceChildren(); return; }
+  const table = document.createElement("table");
+  table.id = "legs-table";
+  detail.forEach(row => {
+    const tr = document.createElement("tr");
+    const seq = document.createElement("td");
+    seq.className = "legs-seq";
+    seq.textContent = row.seq;
+    const teams = document.createElement("td");
+    teams.className = "legs-teams";
+    teams.textContent = row.home && row.away ? `${row.home} vs ${row.away}` : "—";
+    const pick = document.createElement("td");
+    pick.className = "legs-pick" + (row.labels.length > 1 ? " legs-pick-multi" : "");
+    pick.textContent = row.labels.join("");
+    tr.append(seq, teams, pick);
+    table.appendChild(tr);
+  });
+  box.replaceChildren(table);
 }
 document.getElementById("load-probs").onclick = fillFromPredict;
 document.getElementById("solve").onclick = solve;

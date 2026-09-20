@@ -9,7 +9,24 @@ th, td { padding: 0.4em 0.7em; border-bottom: 1px solid #eee; text-align: left; 
 th { background: #fafafa; }
 code { background: #f0f0f0; padding: 0.1em 0.4em; border-radius: 3px; }
 .hint { color: #888; font-size: 0.9em; }
+.table-scroll { overflow-x: auto; }
+.table-scroll table { min-width: 760px; }
+.warning { color: #a15c00; font-weight: 600; }
+.mapped { color: #16734a; }
+.alias-panel { display: flex; align-items: center; gap: 0.6em; flex-wrap: wrap; margin: 1em 0; padding: 0.7em; border: 1px solid #e3c78a; background: #fffaf0; }
+.alias-panel input, .alias-panel select { min-width: 12em; padding: 0.35em; }
+.summary-total { font-weight: 600; }
 textarea { font-family: monospace; font-size: 0.9em; }
 .printable { font-family: monospace; white-space: pre; line-height: 1.4; padding: 0.6em;
   background: #fafafa; border: 1px solid #ddd; border-radius: 4px; }
+
+/* 推荐方案：每场一行（队名 + 中文胜平负；双选/三选并列在同一行） */
+#legs { white-space: normal; padding: 0.4em 0.6em; }
+#legs-table { width: auto; min-width: 26em; margin: 0; }
+#legs-table td { padding: 0.28em 0.9em 0.28em 0; border: none; line-height: 1.5; }
+#legs-table tr + tr td { border-top: 1px solid #f0f0f0; }
+.legs-seq { width: 2.2em; text-align: right; color: #999; }
+.legs-teams { min-width: 17em; }
+.legs-pick { font-weight: 600; letter-spacing: 0.2em; }
+.legs-pick-multi { color: #a15c00; }
 @media print { nav, button { display: none; } }

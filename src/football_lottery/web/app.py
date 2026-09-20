@@ -37,6 +37,9 @@ from football_lottery.optimizer import expand as exp
 
 app = FastAPI(title="足彩预测工具", docs_url="/docs")
 
+# 胜负彩 3/1/0 是主队视角：3=主胜、1=平、0=主负（客胜）
+OUTCOME_LABELS = {"3": "胜", "1": "平", "0": "负"}
+
 ROOT = Path(__file__).resolve().parent
 TEMPLATES_DIR = ROOT / "templates"
 STATIC_DIR = ROOT / "static"
@@ -336,6 +339,31 @@ def api_plan(req: PlanReq):
         )
         conn.commit()
         plan_id = cur.lastrowid
+
+    # 每场一行：队名 + 中文胜平负（双选/三选并列在同一行，不展开）
+    name_by_seq = {}
+    if period_id is not None:
+        for row in conn.execute(
+            """SELECT seq, home_name_cn, away_name_cn FROM period_matches
+               WHERE period_id=? ORDER BY seq""",
+            (period_id,),
+        ):
+            name_by_seq[row["seq"]] = (row["home_name_cn"], row["away_name_cn"])
+
+    legs_detail = []
+    for idx, leg in enumerate(legs, start=1):
+        selection = [str(x) for x in (leg or [])]
+        if not selection:
+            continue
+        home, away = name_by_seq.get(idx, (None, None))
+        legs_detail.append({
+            "seq": idx,
+            "home": home,
+            "away": away,
+            "selection": selection,
+            "labels": [OUTCOME_LABELS.get(x, x) for x in selection],
+        })
+
     return {
         "plan_id": plan_id,
         "p_first": best.get("p_first"),
@@ -344,6 +372,7 @@ def api_plan(req: PlanReq):
         "notes_count": best["notes_count"],
         "amount": best["notes_count"] * 2,
         "legs": legs,
+        "legs_detail": legs_detail,
         "rows": rows,
     }
 
