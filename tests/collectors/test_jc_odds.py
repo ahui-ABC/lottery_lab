@@ -15,6 +15,13 @@ def _fixture():
     return json.loads((FIXTURES / "sporttery_jc_had_20260920.json").read_text(encoding="utf-8"))
 
 
+def _bydraw():
+    """按期号查对阵的真实响应（value 直接是期次详情）。"""
+    payload = json.loads(
+        (FIXTURES / "sporttery_bydraw_26131.json").read_text(encoding="utf-8"))
+    return payload["value"]
+
+
 def _memory_db():
     conn = store.connect(":memory:")
     store.init_db(conn)
@@ -174,6 +181,53 @@ def test_snapshot_uses_plain_insert_not_upsert():
                VALUES(?, 'jc', '2026-09-20T10:00:00.000000', 9.0, 9.0, 9.0)""",
             (pm_id,),
         )
+
+
+# ---- 常驻采集：自动跟进新期次 -------------------------------------------------------
+def test_ensure_current_period_creates_when_absent(monkeypatch):
+    conn = _memory_db()
+    monkeypatch.setattr(
+        sporttery, "fetch_current_period",
+        lambda: {"period_no": "26131", "sale_end": "2026-09-20 20:30:00",
+                 "draw_time": "2026-09-21 14:00:00"},
+    )
+    monkeypatch.setattr(sporttery, "fetch_period_detail", lambda period_no: _bydraw())
+
+    got = sporttery.ensure_current_period(conn)
+
+    assert got == {"period_no": "26131", "created": True, "fixtures": 14}
+    row = conn.execute("SELECT status, sale_end FROM periods WHERE period_no='26131'").fetchone()
+    assert row["status"] == "current"
+    assert row["sale_end"] == "2026-09-20 20:30:00"
+
+
+def test_ensure_current_period_skips_when_already_complete(monkeypatch):
+    conn = _memory_db()
+    _seed_period(conn, [(i, f"主{i}", f"客{i}") for i in range(1, 15)])
+    monkeypatch.setattr(
+        sporttery, "fetch_current_period",
+        lambda: {"period_no": "26131", "sale_end": "2026-09-20 20:30:00",
+                 "draw_time": None},
+    )
+    called = {"detail": 0}
+
+    def _detail(period_no):
+        called["detail"] += 1
+        return {}
+
+    monkeypatch.setattr(sporttery, "fetch_period_detail", _detail)
+
+    got = sporttery.ensure_current_period(conn)
+
+    assert got["created"] is False
+    assert got["fixtures"] == 14
+    assert called["detail"] == 0, "对阵已齐时不应再请求详情接口"
+
+
+def test_ensure_current_period_returns_none_when_no_onsale(monkeypatch):
+    conn = _memory_db()
+    monkeypatch.setattr(sporttery, "fetch_current_period", lambda: None)
+    assert sporttery.ensure_current_period(conn) is None
 
 
 # ---- 5. odds_json 合并（保留既有键） ------------------------------------------------

@@ -332,6 +332,36 @@ def upsert_period(conn, parsed: dict, demote_others: bool = False) -> int:
     return period_id
 
 
+def ensure_current_period(conn) -> dict | None:
+    """确保当期在售期次的 14 场对阵已入库；缺失或不全则抓取补齐。
+
+    供常驻采集使用：新期次开卖时无需人工跑 collect-period，采集进程
+    自己就能跟上。返回 {period_no, created, fixtures}；无在售期次返回 None。
+    """
+    current = fetch_current_period()
+    if not current or not current.get("period_no"):
+        return None
+    period_no = current["period_no"]
+
+    row = conn.execute(
+        "SELECT id FROM periods WHERE period_no=?", (period_no,)
+    ).fetchone()
+    if row:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM period_matches WHERE period_id=?", (row["id"],)
+        ).fetchone()[0]
+        if count >= 14:
+            return {"period_no": period_no, "created": False, "fixtures": count}
+
+    detail = fetch_period_detail(period_no)
+    parsed = parse_period(detail, status="current")
+    if not parsed["period"].get("sale_end"):
+        parsed["period"]["sale_end"] = current.get("sale_end")
+    upsert_period(conn, parsed, demote_others=True)
+    return {"period_no": period_no, "created": True,
+            "fixtures": len(parsed["fixtures"])}
+
+
 def collect_history(
     conn,
     years: int = 4,

@@ -31,3 +31,6 @@ Thumbs.db
 data/reports/
 data/probe/
 data/models/
+
+# Claude Code local settings
+.claude/settings.local.json

@@ -6,6 +6,7 @@
 """
 import argparse
 import io
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -161,13 +162,15 @@ def cmd_collect_draws(args, cfg: dict) -> int:
 
 def _collect_odds_once(conn, sporttery) -> int:
     """拉一次竞彩赔率并写快照。返回进程退出码（watch 模式下忽略）。"""
-    row = conn.execute(
-        "SELECT period_no FROM periods WHERE status='current' ORDER BY id DESC LIMIT 1"
-    ).fetchone()
-    if not row:
-        print("数据库中无当期期次；请先执行 collect-period。", file=sys.stderr)
+    # 先确保当期对阵已入库：新期次开卖时自动跟上，无需人工跑 collect-period
+    ensured = sporttery.ensure_current_period(conn)
+    if ensured is None:
+        print("当前无在售胜负彩期次，跳过本轮", file=sys.stderr, flush=True)
         return 2
-    period_no = row["period_no"]
+    period_no = ensured["period_no"]
+    if ensured["created"]:
+        print(f"[{period_no}] 检测到新期次，已抓取 {ensured['fixtures']} 场对阵",
+              flush=True)
 
     jc_odds = sporttery.parse_jc_odds(sporttery.fetch_jc_odds())
     if not jc_odds:
@@ -189,10 +192,69 @@ def _collect_odds_once(conn, sporttery) -> int:
     return 0
 
 
+def _pid_alive(pid: int) -> bool:
+    """该 PID 是否仍在运行。"""
+    if sys.platform == "win32":
+        import subprocess
+
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                capture_output=True, text=True, timeout=10,
+            )
+        except Exception:
+            return False
+        return str(pid) in (out.stdout or "")
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
+def _acquire_singleton(lock_path) -> bool:
+    """单实例锁：写入当前 PID。已被活着的进程持有则返回 False。
+
+    用于防止「开机自启 + 手动再跑一个」或启动器重复拉起导致的重复采集。
+    持有者已死（崩溃残留）时自动接管。
+    """
+    import os
+
+    lock = Path(lock_path)
+    if lock.exists():
+        try:
+            holder = int(lock.read_text(encoding="utf-8").strip())
+        except (ValueError, OSError):
+            holder = None
+        if holder and holder != os.getpid() and _pid_alive(holder):
+            return False
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text(str(os.getpid()), encoding="utf-8")
+    return True
+
+
+def _redirect_output_to(path: str, max_bytes: int = 5 * 1024 * 1024) -> None:
+    """把 stdout/stderr 追加到日志文件；超过上限先轮转一份。"""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if p.exists() and p.stat().st_size > max_bytes:
+        rotated = Path(str(p) + ".1")
+        if rotated.exists():
+            rotated.unlink()
+        p.rename(rotated)
+    handle = open(p, "a", encoding="utf-8", buffering=1)
+    sys.stdout = handle
+    sys.stderr = handle
+
+
 def cmd_collect_odds(args, cfg: dict) -> int:
     """采集竞彩胜平负赔率；--watch 时按固定间隔轮询并只在赔率变化时追加快照。"""
     from football_lottery.collectors import sporttery
     import time as _time
+
+    log_path = getattr(args, "log", None)
+    if log_path:
+        _redirect_output_to(log_path)
 
     conn = _connect(cfg)
     interval = int(args.interval or 600)
@@ -204,8 +266,14 @@ def cmd_collect_odds(args, cfg: dict) -> int:
             print(f"采集失败：{exc}", file=sys.stderr)
             return 2
 
-    print(f"watch 模式：每 {interval} 秒采集一次，赔率有变化才追加快照。Ctrl+C 停止。",
-          flush=True)
+    # watch 是常驻进程：只允许一个实例，避免自启与手动启动叠加导致重复采集
+    lock_path = cfg.get("odds_lock_path", "data/logs/odds-daemon.lock")
+    if not _acquire_singleton(lock_path):
+        print(f"已有采集进程在运行（锁 {lock_path}），本次退出。", file=sys.stderr, flush=True)
+        return 0
+
+    print(f"watch 模式：每 {interval} 秒采集一次，赔率有变化才追加快照。Ctrl+C 停止。"
+          f"（pid={os.getpid()}）", flush=True)
     try:
         while True:
             try:
@@ -379,6 +447,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("collect-odds", help="采集竞彩胜平负赔率（盘口变化快照）")
     s.add_argument("--watch", action="store_true", help="按间隔循环采集，只在赔率变化时追加")
     s.add_argument("--interval", type=int, default=600, help="watch 模式间隔秒数；默认 600")
+    s.add_argument("--log", help="把输出追加到该日志文件（超过 5MB 自动轮转一份）")
 
     # import-fixtures
     s = sub.add_parser("import-fixtures", help="导入历史期次对阵 CSV（兜底 T5）")
