@@ -175,6 +175,33 @@ def test_normalize_combination_maps_all_pools():
     assert jc_predict.normalize_combination("crs", "-1H") == "s-1sh"
 
 
+def test_option_label_translates_all_pools():
+    assert jc_predict.option_label("had", "h") == "主胜"
+    assert jc_predict.option_label("had", "d") == "平"
+    assert jc_predict.option_label("had", "a") == "客胜"
+    assert jc_predict.option_label("hhad", "h") == "主胜"
+    # 比分：s01s00 → 1:0
+    assert jc_predict.option_label("crs", "s01s00") == "1:0"
+    assert jc_predict.option_label("crs", "s03s02") == "3:2"
+    assert jc_predict.option_label("crs", "s-1sh") == "主胜(其他比分)"
+    assert jc_predict.option_label("crs", "s-1sa") == "客胜(其他比分)"
+    # 半全场：半场 + 全场
+    assert jc_predict.option_label("hafu", "hh") == "胜胜"
+    assert jc_predict.option_label("hafu", "ad") == "负平"
+    # 总进球
+    assert jc_predict.option_label("ttg", "s0") == "0 球"
+    assert jc_predict.option_label("ttg", "s7") == "7 球及以上"
+    # 未知编码原样返回，不猜
+    assert jc_predict.option_label("had", "zz") == "zz"
+    assert jc_predict.option_label("had", None) == "—"
+
+
+def test_pool_label():
+    assert jc_predict.pool_label("hhad") == "让球胜平负"
+    assert jc_predict.pool_label("crs") == "比分"
+    assert jc_predict.pool_label("unknown") == "unknown"
+
+
 def test_normalize_combination_returns_none_for_unknown():
     assert jc_predict.normalize_combination("had", "X") is None
     assert jc_predict.normalize_combination("ttg", "abc") is None

@@ -226,19 +226,28 @@ def summary(conn: sqlite3.Connection, pool: str | None = None) -> dict:
 
 
 def recent_plans(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
-    """最近的方案（含明细），供页面展示。"""
+    """最近的方案（含明细），供页面展示。
+
+    附带中文标签（`pool_label` / 每场的 `pick_label`）—— 映射表在 Python 里，
+    前端拿不到，必须后端翻译好再给。
+    """
     rows = list(conn.execute(
         """SELECT * FROM jc_parlay_plans
            ORDER BY plan_date DESC, pool ASC LIMIT ?""", (limit,)))
     out = []
     for row in rows:
+        pool = row["pool"]
+        legs = json.loads(row["legs_json"])
+        for leg in legs:
+            leg["pick_label"] = jc_predict.option_label(pool, leg.get("pick"))
         out.append({
             "id": row["id"],
             "plan_date": row["plan_date"],
-            "pool": row["pool"],
+            "pool": pool,
+            "pool_label": jc_predict.pool_label(pool),
             "n_legs": row["n_legs"],
             "unit": row["unit"],
-            "legs": json.loads(row["legs_json"]),
+            "legs": legs,
             "bets": json.loads(row["bets_json"]),
             "invested": row["invested"],
             "returned": row["returned"],

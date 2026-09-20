@@ -10,6 +10,22 @@
   <strong>长期仍是负期望</strong>（竞彩抽水 12%–31% 决定），请当作娱乐而非投资。
 </p>
 
+<details class="jc-help">
+  <summary>表头字段怎么看？</summary>
+  <ul>
+    <li><b>选择</b>：这里押的结果。<br>
+      胜平负 / 让球：<code>主胜</code>（含让球后的主队赢）、<code>平</code>、<code>客胜</code>。<br>
+      比分：<code>1:0</code> 这类具体比分；<code>主胜(其他比分)</code> 指 4:0、5:1 等未单列的比分。<br>
+      半全场：<code>胜胜</code> = 半场主队领先 <em>且</em> 全场主队赢，前字是半场、后字是全场。<br>
+      总进球：<code>3 球</code>；<code>7 球及以上</code> 是封顶档。</li>
+    <li><b>赔率</b>：押中 1 元返还多少元。例如 <code>5.30</code> 表示押 1 元中奖得 5.30 元（含本金）。</li>
+    <li><b>命中概率</b>：由赔率反推的市场隐含概率（已去除抽水）。
+      例如 <code>14.1%</code> 表示市场认为这个结果约有一成四的机会出现。</li>
+    <li><b>组合明细</b>：一注 k 串 1 要求其中 <b>每一场</b> 都命中才算中奖；
+      奖金 = 各场赔率相乘 × 每注金额。</li>
+  </ul>
+</details>
+
 <h3>历史盈亏</h3>
 <div id="jc-totals" class="summary-total"></div>
 <table id="jc-summary"><thead><tr>
@@ -25,6 +41,13 @@ const money = v => v == null ? "-" : "¥" + Number(v).toFixed(2);
 const pct = v => v == null ? "-" : (v * 100).toFixed(1) + "%";
 const poolLabel = p => ({hhad: "让球胜平负", had: "胜平负", crs: "比分",
                          hafu: "半全场", ttg: "总进球"}[p] || p);
+
+function appendTd(tr, value, className) {
+  const td = document.createElement("td");
+  td.textContent = value == null ? "" : String(value);
+  if (className) td.className = className;
+  tr.appendChild(td);
+}
 
 async function loadSummary() {
   const j = await fetch("/api/jc/summary").then(r => r.json());
@@ -54,48 +77,60 @@ async function loadPlans() {
 
     const head = document.createElement("p");
     head.className = "jc-plan-head";
-    head.innerHTML = `<strong>${p.plan_date}</strong>　${poolLabel(p.pool)}` +
-      `　${p.n_legs} 场 → <b>${p.bets.length}</b> 注（${money(p.invested != null ? p.invested : p.bets.length * p.unit)}）` +
-      (p.scored ? `　返还 <b>${money(p.returned)}</b>　中奖 ${p.winning_bets} 注` : `　<span class="hint">待开奖</span>`);
+    head.innerHTML = `<strong>${p.plan_date}</strong>　${p.pool_label || poolLabel(p.pool)}` +
+      `　选 ${p.n_legs} 场 → <b>${p.bets.length}</b> 注，共 ` +
+      `<b>${money(p.invested != null ? p.invested : p.bets.length * p.unit)}</b>` +
+      (p.scored ? `　返还 <b>${money(p.returned)}</b>，中奖 ${p.winning_bets} 注` : `　<span class="hint">待开奖</span>`);
     card.appendChild(head);
 
     const table = document.createElement("table");
     table.className = "jc-legs";
+    const thead = document.createElement("thead");
+    const htr = document.createElement("tr");
+    ["#", "对阵", "选择", "赔率", "命中概率", "结果"].forEach(t => {
+      const th = document.createElement("th");
+      th.textContent = t;
+      htr.appendChild(th);
+    });
+    thead.appendChild(htr);
+    table.appendChild(thead);
+
+    // 把每场编号与队名的对应关系留给组合清单用
+    const nameById = {};
+    const tbody = document.createElement("tbody");
     p.legs.forEach((leg, i) => {
+      nameById[leg.match_id] = `${i + 1}. ${leg.home} vs ${leg.away}`;
       const tr = document.createElement("tr");
-      const seq = document.createElement("td");
-      seq.className = "legs-seq";
-      seq.textContent = i + 1;
-      const teams = document.createElement("td");
-      teams.className = "legs-teams";
-      teams.textContent = `${leg.home} vs ${leg.away}`;
+      appendTd(tr, i + 1, "legs-seq");
+      appendTd(tr, `${leg.home} vs ${leg.away}`, "legs-teams");
       const pick = document.createElement("td");
       pick.className = "legs-pick";
-      pick.textContent = leg.pick;
-      const odds = document.createElement("td");
-      odds.className = "jc-odds";
-      odds.textContent = "@" + leg.odds;
-      const prob = document.createElement("td");
-      prob.className = "hint";
-      prob.textContent = "p=" + (leg.prob == null ? "-" : (leg.prob * 100).toFixed(1) + "%");
+      pick.innerHTML = `<b>${leg.pick_label || leg.pick}</b>` +
+        `<span class="hint"> ${leg.pick}</span>`;
+      tr.appendChild(pick);
+      appendTd(tr, Number(leg.odds).toFixed(2), "jc-odds");
+      appendTd(tr, leg.prob == null ? "—" : (leg.prob * 100).toFixed(1) + "%", "hint");
       const mark = document.createElement("td");
-      if (leg.hit === true) { mark.textContent = "✓"; mark.className = "mapped"; }
-      else if (leg.hit === false) { mark.textContent = "✗"; mark.className = "warning"; }
-      tr.append(seq, teams, pick, odds, prob, mark);
-      table.appendChild(tr);
+      if (leg.hit === true) { mark.textContent = "✓ 中"; mark.className = "mapped"; }
+      else if (leg.hit === false) { mark.textContent = "✗ 未中"; mark.className = "warning"; }
+      else { mark.textContent = "待定"; mark.className = "hint"; }
+      tr.appendChild(mark);
+      tbody.appendChild(tr);
     });
+    table.appendChild(tbody);
     card.appendChild(table);
 
-    // 组合清单（折叠，默认收起 4 场以上）
+    // 组合清单（折叠）
     if (p.bets.length) {
       const det = document.createElement("details");
       const sum = document.createElement("summary");
-      sum.textContent = `查看 ${p.bets.length} 注组合`;
+      sum.textContent = `查看 ${p.bets.length} 注组合明细（每注需全部命中才中奖）`;
       det.appendChild(sum);
       const pre = document.createElement("pre");
       pre.className = "printable";
       pre.textContent = p.bets.map(b =>
-        `${b.size}串1　${b.legs.join("×")}　${money(b.amount)}`).join("\n");
+        `${b.size}串1　` + b.legs.map(m => nameById[m] || m).join("　×　") +
+        `　→ ${money(b.amount)}`).join("\n");
       det.appendChild(pre);
       card.appendChild(det);
     }

@@ -70,6 +70,64 @@ def devig_n(odds: list[float]) -> list[float] | None:
     return [(1.0 / v) / total for v in values]
 
 
+# ---- 选项展示名（赔率字段名 → 中文） ------------------------------------------------
+_TTG_LABELS = {f"s{i}": f"{i} 球" for i in range(7)}
+_TTG_LABELS["s7"] = "7 球及以上"
+
+_HAFU_LABELS = {
+    "hh": "胜胜", "hd": "胜平", "ha": "胜负",
+    "dh": "平胜", "dd": "平平", "da": "平负",
+    "ah": "负胜", "ad": "负平", "aa": "负负",
+}
+
+
+def option_label(pool: str, option: str | None) -> str:
+    """把赔率字段名翻译成中文，供界面展示。
+
+    - had/hhad：h/d/a → 主胜/平/客胜（hhad 为**让球后**的胜负）
+    - crs：s01s00 → 1:0；s-1sh/sd/sa → 主胜/平/客胜(其他比分)
+    - ttg：s0..s7 → 0 球..7 球及以上
+    - hafu：hh → 胜胜（半场结果 + 全场结果）
+    """
+    if not option:
+        return "—"
+    text = str(option)
+
+    if pool in ("had", "hhad"):
+        return {"h": "主胜", "d": "平", "a": "客胜"}.get(text, text)
+
+    if pool == "ttg":
+        return _TTG_LABELS.get(text, text)
+
+    if pool == "hafu":
+        return _HAFU_LABELS.get(text, text)
+
+    if pool == "crs":
+        if text == "s-1sh":
+            return "主胜(其他比分)"
+        if text == "s-1sd":
+            return "平(其他比分)"
+        if text == "s-1sa":
+            return "客胜(其他比分)"
+        # s01s00 → 1:0
+        if text.startswith("s") and "s" in text[1:]:
+            body = text[1:]
+            head, _, tail = body.partition("s")
+            if head.isdigit() and tail.isdigit():
+                return f"{int(head)}:{int(tail)}"
+        return text
+
+    return text
+
+
+def pool_label(pool: str) -> str:
+    """玩法名 → 中文。"""
+    return {
+        "had": "胜平负", "hhad": "让球胜平负", "crs": "比分",
+        "ttg": "总进球", "hafu": "半全场",
+    }.get(pool, pool)
+
+
 # ---- 开奖结果归一化 ----------------------------------------------------------------
 def normalize_combination(pool: str, combination: str) -> str | None:
     """把 matchResultList 的 combination 映射为赔率字段名；无法识别返回 None。

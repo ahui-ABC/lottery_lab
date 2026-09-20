@@ -409,6 +409,8 @@ def cmd_plan_jc(args, cfg: dict) -> int:
             return 2
         pools = {args.pool: pools[args.pool]}
 
+    from football_lottery.models import jc_predict
+
     made = []
     for pool, n_legs in pools.items():
         plan = jc_parlay.build_plan(
@@ -416,15 +418,16 @@ def cmd_plan_jc(args, cfg: dict) -> int:
             unit=args.unit or jc_parlay.DEFAULT_UNIT,
             min_combo=args.min_combo or jc_parlay.DEFAULT_MIN_COMBO)
         if plan is None:
-            made.append({"pool": pool, "skipped": f"可用场次不足 {n_legs}"})
+            made.append({"pool": jc_predict.pool_label(pool), "skipped": f"可用场次不足 {n_legs}"})
             continue
         plan_id = jc_parlay.save_plan(conn, plan)
         made.append({
-            "pool": pool, "plan_id": plan_id, "legs": len(plan["legs"]),
-            "bets": len(plan["bets"]),
+            "pool": jc_predict.pool_label(pool), "plan_id": plan_id,
+            "legs": len(plan["legs"]), "bets": len(plan["bets"]),
             "invested": len(plan["bets"]) * plan["unit"],
             "picks": [
-                {"match": f"{x['home']} vs {x['away']}", "pick": x["pick"],
+                {"match": f"{x['home']} vs {x['away']}",
+                 "pick": jc_predict.option_label(pool, x["pick"]),
                  "odds": x["odds"], "prob": round(x["prob"] or 0, 4)}
                 for x in plan["legs"]
             ],

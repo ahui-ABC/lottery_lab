@@ -51,6 +51,15 @@ textarea { font-family: monospace; font-size: 0.9em; }
 .jc-odds { font-weight: 600; color: #16734a; }
 .jc-plan details summary { cursor: pointer; color: #06c; font-size: 0.9em; }
 .jc-plan details pre { max-height: 18em; overflow: auto; font-size: 0.85em; }
+.jc-legs th { background: #f7f7f7; font-size: 0.85em; font-weight: 600;
+  padding: 0.3em 0.9em 0.3em 0; border-bottom: 1px solid #e8e8e8; text-align: left; }
+.jc-legs th:first-child { padding-left: 0; }
+/* 玩法代码用小字跟在中文后面，方便对照官方界面 */
+.jc-legs .legs-pick .hint { font-weight: 400; font-size: 0.85em; }
+.jc-help { margin: 0.6em 0 1.2em; font-size: 0.9em; }
+.jc-help summary { cursor: pointer; color: #06c; }
+.jc-help ul { margin: 0.5em 0 0; padding-left: 1.4em; }
+.jc-help li { margin-bottom: 0.4em; line-height: 1.6; }
 
 /* 历史战绩：点击期号查看投注选项 */
 .period-link { color: #06c; cursor: pointer; font-weight: 600; }
