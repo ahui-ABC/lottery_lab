@@ -108,6 +108,70 @@ def test_is_running_ignores_dead_pid(tmp_path, monkeypatch):
     assert pid == 31337
 
 
+class _FakeDatetime:
+    """打桩 datetime，只控制 now()。"""
+
+    def __init__(self, hour):
+        self._hour = hour
+
+    def now(self):
+        from datetime import datetime as _dt
+        return _dt(2026, 9, 20, self._hour, 0, 0)
+
+    def __getattr__(self, name):        # fromisoformat 等仍走真实实现
+        from datetime import datetime as _dt
+        return getattr(_dt, name)
+
+
+def test_daily_hook_skips_before_configured_hour(monkeypatch, conn):
+    called = []
+    monkeypatch.setattr(cli, "datetime", _FakeDatetime(cli.DAILY_JC_HOUR - 1))
+    monkeypatch.setattr(cli, "cmd_daily_jc", lambda *a, **k: called.append(1))
+
+    cli._maybe_run_daily_jc(conn, {})
+
+    assert called == [], "早于 DAILY_JC_HOUR 不应触发"
+
+
+def test_daily_hook_skips_when_plan_exists(monkeypatch, conn):
+    called = []
+    monkeypatch.setattr(cli, "datetime", _FakeDatetime(cli.DAILY_JC_HOUR + 1))
+    monkeypatch.setattr(cli, "cmd_daily_jc", lambda *a, **k: called.append(1))
+    conn.execute(
+        """INSERT INTO jc_matches(match_id, match_date) VALUES(1, '2026-09-20')""")
+    conn.execute(
+        """INSERT INTO jc_parlay_plans(plan_date, pool, n_legs, unit, min_combo,
+                                       legs_json, bets_json)
+           VALUES('2026-09-20', 'crs', 2, 2, 2, '[]', '[]')""")
+    conn.commit()
+
+    cli._maybe_run_daily_jc(conn, {})
+
+    assert called == [], "当天已有方案不应重复生成"
+
+
+def test_daily_hook_runs_once_when_no_plan(monkeypatch, conn):
+    called = []
+    monkeypatch.setattr(cli, "datetime", _FakeDatetime(cli.DAILY_JC_HOUR + 1))
+    monkeypatch.setattr(cli, "cmd_daily_jc", lambda *a, **k: called.append(1) or 0)
+
+    cli._maybe_run_daily_jc(conn, {})
+
+    assert called == [1], "当天无方案时应触发一次"
+
+
+def test_daily_hook_does_not_raise_on_failure(monkeypatch, conn, capsys):
+    def _boom(*a, **k):
+        raise RuntimeError("接口挂了")
+
+    monkeypatch.setattr(cli, "datetime", _FakeDatetime(cli.DAILY_JC_HOUR + 1))
+    monkeypatch.setattr(cli, "cmd_daily_jc", _boom)
+
+    cli._maybe_run_daily_jc(conn, {})       # 不应抛出
+
+    assert "接口挂了" in capsys.readouterr().err
+
+
 def test_collect_draws_writes_history(monkeypatch, conn, capsys):
     monkeypatch.setattr(cli, "_connect", lambda _cfg: conn)
     page = _fixture("sporttery_history_90.json")["value"]

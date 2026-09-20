@@ -207,6 +207,35 @@ def _redirect_output_to(path: str, max_bytes: int = 5 * 1024 * 1024) -> None:
     sys.stderr = handle
 
 
+# 采集进程里每日自动跑 daily-jc 的起始小时（24 小时制）。
+# 设在下半天是因为：早于此赔率多为初盘、定价不充分；且 predict-jc 只处理
+# 当时仍在售的比赛，跑得太早会漏掉当天晚些上架的场次。
+DAILY_JC_HOUR = 14
+
+
+def _maybe_run_daily_jc(conn, cfg: dict) -> None:
+    """watch 进程里每天跑一次 daily-jc（当天已有方案则跳过）。
+
+    判定「已跑过」用 `jc_parlay_plans` 里是否已有当天的方案 —— 不额外建状态表。
+    失败只告警不中断采集：采集是本进程的主职。
+    """
+    from types import SimpleNamespace
+
+    now = datetime.now()
+    if now.hour < DAILY_JC_HOUR:
+        return
+    today = now.date().isoformat()
+    if conn.execute("SELECT 1 FROM jc_parlay_plans WHERE plan_date=?",
+                    (today,)).fetchone():
+        return
+
+    print(f"[daily-jc] {today} 尚无方案，开始生成…", flush=True)
+    try:
+        cmd_daily_jc(SimpleNamespace(workers=8, delay=0.02, pool=None), cfg)
+    except Exception as exc:                       # noqa: BLE001 - 不能让采集挂掉
+        print(f"[daily-jc] 失败（下一轮重试）：{exc}", file=sys.stderr, flush=True)
+
+
 def cmd_collect_odds(args, cfg: dict) -> int:
     """采集竞彩胜平负赔率；--watch 时按固定间隔轮询并只在赔率变化时追加快照。"""
     from football_lottery.collectors import sporttery
@@ -243,6 +272,7 @@ def cmd_collect_odds(args, cfg: dict) -> int:
             except sporttery.CollectorError as exc:
                 # watch 模式不因单次失败退出
                 print(f"采集失败（下轮重试）：{exc}", file=sys.stderr, flush=True)
+            _maybe_run_daily_jc(conn, cfg)
             _time.sleep(interval)
     except KeyboardInterrupt:
         print("\n已停止 watch。", flush=True)
