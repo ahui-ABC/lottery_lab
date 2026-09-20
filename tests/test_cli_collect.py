@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -72,26 +73,39 @@ def test_collect_period_reports_collector_error(monkeypatch, conn, capsys):
     assert "P0001" in capsys.readouterr().err
 
 
-def test_singleton_lock_blocks_second_instance(tmp_path):
+def test_singleton_lock_takes_over_stale_lock(tmp_path, monkeypatch):
+    from football_lottery import daemon_ctl
+
     lock = tmp_path / "daemon.lock"
+    lock.write_text("999999", encoding="utf-8")   # 几乎必然不存在的 PID
+    monkeypatch.setattr(daemon_ctl, "pid_alive", lambda pid: False)
 
-    assert cli._acquire_singleton(lock) is True
-    # 本进程已持有 → 再取应失败
-    assert cli._acquire_singleton(lock) is True  # 同 PID 视为自己，可重入
-
-    # 伪造另一个"活着"的持有者（PID 1 在 Windows 上通常不存在，改用本进程 PID 的邻值）
-    lock.write_text("1", encoding="utf-8")
-    monkeypatch_pid = 999999  # 几乎必然不存在
-    lock.write_text(str(monkeypatch_pid), encoding="utf-8")
-    assert cli._acquire_singleton(lock) is True, "持有者已死，应接管陈旧锁"
+    assert daemon_ctl.acquire_singleton(lock) is True, "持有者已死，应接管陈旧锁"
+    assert lock.read_text(encoding="utf-8").strip() == str(os.getpid())
 
 
 def test_singleton_lock_rejects_when_holder_alive(tmp_path, monkeypatch):
+    from football_lottery import daemon_ctl
+
     lock = tmp_path / "daemon.lock"
     lock.write_text("4242", encoding="utf-8")
-    monkeypatch.setattr(cli, "_pid_alive", lambda pid: pid == 4242)
+    monkeypatch.setattr(daemon_ctl, "pid_alive", lambda pid: pid == 4242)
 
-    assert cli._acquire_singleton(lock) is False
+    assert daemon_ctl.acquire_singleton(lock) is False
+
+
+def test_is_running_ignores_dead_pid(tmp_path, monkeypatch):
+    from football_lottery import daemon_ctl
+
+    lock = tmp_path / "daemon.lock"
+    lock.write_text("31337", encoding="utf-8")
+    monkeypatch.setattr(daemon_ctl, "LOCK_PATH", lock)
+    monkeypatch.setattr(daemon_ctl, "pid_alive", lambda pid: False)
+
+    running, pid = daemon_ctl.is_running()
+
+    assert running is False
+    assert pid == 31337
 
 
 def test_collect_draws_writes_history(monkeypatch, conn, capsys):

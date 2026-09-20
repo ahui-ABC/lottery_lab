@@ -192,47 +192,6 @@ def _collect_odds_once(conn, sporttery) -> int:
     return 0
 
 
-def _pid_alive(pid: int) -> bool:
-    """该 PID 是否仍在运行。"""
-    if sys.platform == "win32":
-        import subprocess
-
-        try:
-            out = subprocess.run(
-                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                capture_output=True, text=True, timeout=10,
-            )
-        except Exception:
-            return False
-        return str(pid) in (out.stdout or "")
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
-def _acquire_singleton(lock_path) -> bool:
-    """单实例锁：写入当前 PID。已被活着的进程持有则返回 False。
-
-    用于防止「开机自启 + 手动再跑一个」或启动器重复拉起导致的重复采集。
-    持有者已死（崩溃残留）时自动接管。
-    """
-    import os
-
-    lock = Path(lock_path)
-    if lock.exists():
-        try:
-            holder = int(lock.read_text(encoding="utf-8").strip())
-        except (ValueError, OSError):
-            holder = None
-        if holder and holder != os.getpid() and _pid_alive(holder):
-            return False
-    lock.parent.mkdir(parents=True, exist_ok=True)
-    lock.write_text(str(os.getpid()), encoding="utf-8")
-    return True
-
-
 def _redirect_output_to(path: str, max_bytes: int = 5 * 1024 * 1024) -> None:
     """把 stdout/stderr 追加到日志文件；超过上限先轮转一份。"""
     p = Path(path)
@@ -267,8 +226,10 @@ def cmd_collect_odds(args, cfg: dict) -> int:
             return 2
 
     # watch 是常驻进程：只允许一个实例，避免自启与手动启动叠加导致重复采集
-    lock_path = cfg.get("odds_lock_path", "data/logs/odds-daemon.lock")
-    if not _acquire_singleton(lock_path):
+    from football_lottery import daemon_ctl
+
+    lock_path = cfg.get("odds_lock_path") or daemon_ctl.LOCK_PATH
+    if not daemon_ctl.acquire_singleton(Path(lock_path)):
         print(f"已有采集进程在运行（锁 {lock_path}），本次退出。", file=sys.stderr, flush=True)
         return 0
 

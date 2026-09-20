@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}采集{% endblock %}
+{% block content %}
+<h2>赔率采集</h2>
+<p class="hint">
+  采集竞彩胜平负赔率，每 10 分钟一轮；<strong>只在赔率变化时追加快照</strong>，
+  用来记录盘口变化规律。新版次开卖时会自动抓取对阵，无需手动干预。
+</p>
+
+<div class="daemon-panel">
+  <span id="daemon-state" class="daemon-state">查询中…</span>
+  <button id="daemon-start" type="button">启动采集</button>
+  <button id="daemon-stop" type="button">停止采集</button>
+  <span class="hint" id="daemon-msg"></span>
+</div>
+
+<p id="snapshot-info" class="hint"></p>
+
+<h3>采集日志</h3>
+<pre id="daemon-log" class="printable">加载中…</pre>
+{% endblock %}
+{% block scripts %}
+<script>
+const stateEl = document.getElementById("daemon-state");
+const msgEl = document.getElementById("daemon-msg");
+const logEl = document.getElementById("daemon-log");
+const snapEl = document.getElementById("snapshot-info");
+const startBtn = document.getElementById("daemon-start");
+const stopBtn = document.getElementById("daemon-stop");
+
+function renderStatus(j) {
+  if (j.running) {
+    stateEl.textContent = `运行中 · PID ${j.pid} · 每 ${j.interval} 秒`;
+    stateEl.className = "daemon-state daemon-on";
+  } else {
+    stateEl.textContent = "已停止";
+    stateEl.className = "daemon-state daemon-off";
+  }
+  startBtn.disabled = j.running;
+  stopBtn.disabled = !j.running;
+  logEl.textContent = (j.log_lines || []).join("\n") || "（暂无日志）";
+  const s = j.snapshots || {};
+  snapEl.textContent = s.total == null ? "" :
+    `快照 ${s.total} 条，其中 ${s.periods_with_changes} 场有过赔率变化` +
+    (s.last_captured_at ? `；最近采集 ${s.last_captured_at.slice(0, 19).replace("T", " ")}` : "");
+  if (j.stale_pid) {
+    msgEl.textContent = `（发现残留锁 PID ${j.stale_pid}，点启动会自动接管）`;
+  }
+}
+
+async function refresh() {
+  const j = await fetch("/api/daemon/status").then(r => r.json());
+  renderStatus(j);
+}
+
+async function act(path) {
+  msgEl.textContent = "处理中…";
+  const j = await fetch(path, {method: "POST"}).then(r => r.json());
+  msgEl.textContent = j.message || "";
+  await refresh();
+}
+
+startBtn.onclick = () => act("/api/daemon/start");
+stopBtn.onclick = () => act("/api/daemon/stop");
+
+refresh().catch(e => { logEl.textContent = "加载失败：" + e; });
+setInterval(refresh, 10000);   // 后台跑着时自动刷新状态
+</script>
+{% endblock %}

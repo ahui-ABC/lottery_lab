@@ -87,6 +87,37 @@ def page_backtest(request: Request):
     return templates.TemplateResponse(request, "backtest.html", {})
 
 
+@app.get("/collect", response_class=HTMLResponse)
+def page_collect(request: Request):
+    return templates.TemplateResponse(request, "collect.html", {})
+
+
+@app.get("/api/daemon/status")
+def api_daemon_status():
+    """采集守护进程状态 + 快照概况。"""
+    from football_lottery import daemon_ctl
+
+    state = daemon_ctl.status()
+    state["snapshots"] = daemon_ctl.snapshot_summary(_get_conn())
+    return state
+
+
+@app.post("/api/daemon/start")
+def api_daemon_start():
+    """启动采集守护进程（已在运行时直接返回现状）。"""
+    from football_lottery import daemon_ctl
+
+    return daemon_ctl.start()
+
+
+@app.post("/api/daemon/stop")
+def api_daemon_stop():
+    """停止采集守护进程。"""
+    from football_lottery import daemon_ctl
+
+    return daemon_ctl.stop()
+
+
 # ---------------- API ----------------
 @app.get("/api/health")
 def api_health():

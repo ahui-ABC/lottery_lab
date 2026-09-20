@@ -30,6 +30,17 @@ textarea { font-family: monospace; font-size: 0.9em; }
 .legs-pick { font-weight: 600; letter-spacing: 0.2em; }
 .legs-pick-multi { color: #a15c00; }
 
+/* 采集页：启停面板 */
+.daemon-panel { display: flex; align-items: center; gap: 0.8em; flex-wrap: wrap;
+  margin: 1em 0; padding: 0.8em 1em; border: 1px solid #ddd; border-radius: 4px;
+  background: #fafafa; }
+.daemon-state { font-weight: 600; padding: 0.2em 0.7em; border-radius: 3px; }
+.daemon-on { color: #16734a; background: #e8f5ee; }
+.daemon-off { color: #777; background: #eee; }
+.daemon-panel button { padding: 0.35em 1em; cursor: pointer; }
+.daemon-panel button:disabled { opacity: 0.45; cursor: not-allowed; }
+#daemon-log { max-height: 26em; overflow: auto; margin-top: 0.4em; }
+
 /* 历史战绩：点击期号查看投注选项 */
 .period-link { color: #06c; cursor: pointer; font-weight: 600; }
 .period-link:hover { text-decoration: underline; }
