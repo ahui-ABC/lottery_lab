@@ -5,7 +5,6 @@
 <p class="hint">
   选场规则与场次数来自 <strong>1731 期历史回测</strong>：按「市场概率最高」选场，
   同时下注所有 2 串 1 及以上的组合。
-  <br>
   回测实测返还率：让球 75.3% / 比分 75.1% / 半全场 64.6% ——
   <strong>长期仍是负期望</strong>（竞彩抽水 12%–31% 决定），请当作娱乐而非投资。
 </p>
@@ -19,15 +18,17 @@
       半全场：<code>胜胜</code> = 半场主队领先 <em>且</em> 全场主队赢，前字是半场、后字是全场。<br>
       总进球：<code>3 球</code>；<code>7 球及以上</code> 是封顶档。</li>
     <li><b>赔率</b>：押中 1 元返还多少元。例如 <code>5.30</code> 表示押 1 元中奖得 5.30 元（含本金）。</li>
-    <li><b>命中概率</b>：由赔率反推的市场隐含概率（已去除抽水）。
-      例如 <code>14.1%</code> 表示市场认为这个结果约有一成四的机会出现。</li>
+    <li><b>命中概率</b>：由赔率反推的市场隐含概率（已去除抽水）。</li>
     <li><b>组合明细</b>：一注 k 串 1 要求其中 <b>每一场</b> 都命中才算中奖；
       奖金 = 各场赔率相乘 × 每注金额。</li>
   </ul>
 </details>
 
 <h3>历史盈亏</h3>
-<div id="jc-totals" class="summary-total"></div>
+<div class="stat-row" id="jc-stats"></div>
+<svg class="spark" id="jc-spark" viewBox="0 0 600 96" preserveAspectRatio="none"
+     role="img" aria-label="累计盈亏曲线"></svg>
+<div class="spark-legend" id="jc-spark-legend"></div>
 <table id="jc-summary"><thead><tr>
   <th>玩法</th><th>期数</th><th>投入</th><th>返还</th><th>盈亏</th><th>返还率</th><th>中奖注数</th>
 </tr></thead><tbody></tbody></table>
@@ -37,8 +38,8 @@
 {% endblock %}
 {% block scripts %}
 <script>
-const money = v => v == null ? "-" : "¥" + Number(v).toFixed(2);
-const pct = v => v == null ? "-" : (v * 100).toFixed(1) + "%";
+const money = v => v == null ? "—" : (v < 0 ? "-¥" : "¥") + Math.abs(Number(v)).toFixed(2);
+const pct = v => v == null ? "—" : (v * 100).toFixed(1) + "%";
 const poolLabel = p => ({hhad: "让球胜平负", had: "胜平负", crs: "比分",
                          hafu: "半全场", ttg: "总进球"}[p] || p);
 
@@ -49,38 +50,115 @@ function appendTd(tr, value, className) {
   tr.appendChild(td);
 }
 
+// 大数字统计卡
+function renderStats(t) {
+  const stats = [
+    { label: "总投入", value: money(t.invested), cls: "" },
+    { label: "总返还", value: money(t.returned), cls: "" },
+    { label: "盈亏",   value: money(t.profit),
+      cls: (t.profit || 0) > 0 ? "ok" : (t.profit || 0) < 0 ? "bad" : "" },
+    { label: "返还率", value: pct(t.return_rate),
+      cls: (t.return_rate || 0) >= 1 ? "ok" : "bad" },
+    { label: "期数",   value: t.plans || 0, cls: "info" },
+  ];
+  const box = document.getElementById("jc-stats");
+  box.replaceChildren();
+  stats.forEach(s => {
+    const d = document.createElement("div");
+    d.className = "stat " + s.cls;
+    d.innerHTML = `<div class="stat-label">${s.label}</div>` +
+                  `<div class="stat-value">${s.value}</div>`;
+    box.appendChild(d);
+  });
+}
+
+// 累计盈亏曲线（手绘 SVG，不引外部库）
+function renderSpark(points) {
+  const svg = document.getElementById("jc-spark");
+  const legend = document.getElementById("jc-spark-legend");
+  svg.replaceChildren();
+  if (!points || points.length < 2) {
+    legend.textContent = points && points.length
+      ? "只有 1 期数据，再跑几期就能画出曲线"
+      : "还没有已开奖的方案";
+    return;
+  }
+  const W = 600, H = 96, PAD = 6;
+  const vals = points.map(p => p.cumulative);
+  const min = Math.min(0, ...vals), max = Math.max(0, ...vals);
+  const span = (max - min) || 1;
+  const x = i => PAD + i * (W - PAD * 2) / (points.length - 1);
+  const y = v => H - PAD - ((v - min) / span) * (H - PAD * 2);
+
+  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i)},${y(p.cumulative)}`).join(" ");
+  const area = `${line} L${x(points.length - 1)},${y(0)} L${x(0)},${y(0)} Z`;
+  const last = vals[vals.length - 1];
+  const color = last >= 0 ? "var(--ok)" : "var(--bad)";
+
+  const NS = "http://www.w3.org/2000/svg";
+  const add = (tag, attrs) => {
+    const el = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    svg.appendChild(el);
+    return el;
+  };
+  // 零轴
+  add("line", { x1: PAD, y1: y(0), x2: W - PAD, y2: y(0), class: "spark-zero" });
+  add("path", { d: area, fill: color, class: "spark-area" });
+  add("path", { d: line, stroke: color, class: "spark-line" });
+
+  legend.innerHTML = `<span>${points[0].date}</span>` +
+    `<span>累计 ${money(last)}</span>` +
+    `<span>${points[points.length - 1].date}</span>`;
+}
+
 async function loadSummary() {
   const j = await fetch("/api/jc/summary").then(r => r.json());
-  const t = j.total || {};
-  document.getElementById("jc-totals").textContent =
-    `共 ${t.plans || 0} 期，投入 ${money(t.invested)}，返还 ${money(t.returned)}，` +
-    `盈亏 ${money(t.profit)}（返还率 ${pct(t.return_rate)}）`;
+  renderStats(j.total || {});
+  renderSpark(j.timeline || []);
+
   const tbody = document.querySelector("#jc-summary tbody");
   tbody.replaceChildren();
   Object.keys(j.by_pool || {}).sort().forEach(pool => {
     const v = j.by_pool[pool];
     const tr = document.createElement("tr");
-    [poolLabel(pool), v.plans, money(v.invested), money(v.returned),
-     money(v.profit), pct(v.return_rate), v.winning_bets]
-      .forEach(x => { const td = document.createElement("td"); td.textContent = x; tr.appendChild(td); });
+    appendTd(tr, poolLabel(pool));
+    appendTd(tr, v.plans);
+    appendTd(tr, money(v.invested));
+    appendTd(tr, money(v.returned));
+    appendTd(tr, money(v.profit), v.profit >= 0 ? "pos" : "neg");
+    appendTd(tr, pct(v.return_rate), (v.return_rate || 0) >= 1 ? "pos" : "neg");
+    appendTd(tr, v.winning_bets);
     tbody.appendChild(tr);
   });
+  if (!Object.keys(j.by_pool || {}).length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="hint">还没有已开奖的方案</td></tr>`;
+  }
 }
 
 async function loadPlans() {
   const j = await fetch("/api/jc/plans").then(r => r.json());
   const box = document.getElementById("jc-plans");
   box.replaceChildren();
-  (j.plans || []).forEach(p => {
+  const plans = j.plans || [];
+  if (!plans.length) {
+    box.innerHTML = `<p class="hint">暂无方案；等采集进程每天自动生成，或手动跑 <code>plan-jc</code>。</p>`;
+    return;
+  }
+  plans.forEach(p => {
     const card = document.createElement("div");
     card.className = "jc-plan";
 
+    const profit = p.scored ? (p.returned || 0) - (p.invested || 0) : null;
     const head = document.createElement("p");
     head.className = "jc-plan-head";
     head.innerHTML = `<strong>${p.plan_date}</strong>　${p.pool_label || poolLabel(p.pool)}` +
       `　选 ${p.n_legs} 场 → <b>${p.bets.length}</b> 注，共 ` +
       `<b>${money(p.invested != null ? p.invested : p.bets.length * p.unit)}</b>` +
-      (p.scored ? `　返还 <b>${money(p.returned)}</b>，中奖 ${p.winning_bets} 注` : `　<span class="hint">待开奖</span>`);
+      (p.scored
+        ? `　返还 <b class="${profit >= 0 ? "pos" : "neg"}">${money(p.returned)}</b>` +
+          `（<span class="${profit >= 0 ? "pos" : "neg"}">${money(profit)}</span>），中奖 ${p.winning_bets} 注`
+        : `　<span class="pill info">待开奖</span>`);
     card.appendChild(head);
 
     const table = document.createElement("table");
@@ -95,7 +173,6 @@ async function loadPlans() {
     thead.appendChild(htr);
     table.appendChild(thead);
 
-    // 把每场编号与队名的对应关系留给组合清单用
     const nameById = {};
     const tbody = document.createElement("tbody");
     p.legs.forEach((leg, i) => {
@@ -111,8 +188,8 @@ async function loadPlans() {
       appendTd(tr, Number(leg.odds).toFixed(2), "jc-odds");
       appendTd(tr, leg.prob == null ? "—" : (leg.prob * 100).toFixed(1) + "%", "hint");
       const mark = document.createElement("td");
-      if (leg.hit === true) { mark.textContent = "✓ 中"; mark.className = "mapped"; }
-      else if (leg.hit === false) { mark.textContent = "✗ 未中"; mark.className = "warning"; }
+      if (leg.hit === true) { mark.textContent = "✓ 中"; mark.className = "ok"; }
+      else if (leg.hit === false) { mark.textContent = "✗ 未中"; mark.className = "bad"; }
       else { mark.textContent = "待定"; mark.className = "hint"; }
       tr.appendChild(mark);
       tbody.appendChild(tr);
@@ -120,7 +197,6 @@ async function loadPlans() {
     table.appendChild(tbody);
     card.appendChild(table);
 
-    // 组合清单（折叠）
     if (p.bets.length) {
       const det = document.createElement("details");
       const sum = document.createElement("summary");
@@ -136,10 +212,9 @@ async function loadPlans() {
     }
     box.appendChild(card);
   });
-  if (!(j.plans || []).length) box.textContent = "暂无方案；先跑 plan-jc。";
 }
 
-loadSummary().catch(e => { document.getElementById("jc-totals").textContent = "加载失败：" + e; });
+loadSummary().catch(e => { document.getElementById("jc-stats").textContent = "加载失败：" + e; });
 loadPlans().catch(() => { document.getElementById("jc-plans").textContent = "加载失败"; });
 </script>
 {% endblock %}

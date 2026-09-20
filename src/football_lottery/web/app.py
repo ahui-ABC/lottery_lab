@@ -108,11 +108,13 @@ def api_jc_plans(limit: int = 12):
 
 @app.get("/api/jc/summary")
 def api_jc_summary():
-    """串关方案的历史盈亏汇总。"""
+    """串关方案的历史盈亏汇总 + 逐期盈亏序列（供曲线图）。"""
     from football_lottery.models import jc_parlay
 
     conn = _get_conn()
-    return jc_parlay.summary(conn)
+    out = jc_parlay.summary(conn)
+    out["timeline"] = jc_parlay.timeline(conn)
+    return out
 
 
 @app.get("/api/daemon/status")

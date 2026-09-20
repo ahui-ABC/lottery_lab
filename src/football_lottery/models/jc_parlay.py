@@ -225,6 +225,36 @@ def summary(conn: sqlite3.Connection, pool: str | None = None) -> dict:
     }
 
 
+def timeline(conn: sqlite3.Connection, limit: int = 90) -> list[dict]:
+    """按日期聚合的盈亏序列，供首页曲线图使用（累计 + 单期）。"""
+    rows = list(conn.execute(
+        """SELECT plan_date,
+                  SUM(invested) AS invested,
+                  SUM(returned) AS returned,
+                  COUNT(*) AS plans
+           FROM jc_parlay_plans
+           WHERE scored_at IS NOT NULL
+           GROUP BY plan_date ORDER BY plan_date DESC LIMIT ?""", (limit,)))
+    rows.reverse()                     # 曲线按时间正序
+
+    out = []
+    cumulative = 0.0
+    for r in rows:
+        invested = float(r["invested"] or 0)
+        returned = float(r["returned"] or 0)
+        profit = returned - invested
+        cumulative += profit
+        out.append({
+            "date": r["plan_date"],
+            "plans": r["plans"],
+            "invested": round(invested, 2),
+            "returned": round(returned, 2),
+            "profit": round(profit, 2),
+            "cumulative": round(cumulative, 2),
+        })
+    return out
+
+
 def recent_plans(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     """最近的方案（含明细），供页面展示。
 
