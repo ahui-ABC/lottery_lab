@@ -136,6 +136,120 @@ def run(conn: sqlite3.Connection, batch_size: int = 2000,
     return out
 
 
+def run_with_returns(conn: sqlite3.Connection, batch_size: int = 2000,
+                     progress=None) -> dict:
+    """同 `run()`，但额外保留**每注的收益**，供统计显著性检验使用。
+
+    返回 {(pool, method): [(match_id, profit), ...]}。
+    单注收益：命中 = `odds - 1`，否则 = `-1`。
+    """
+    returns: dict[tuple[str, str], list[tuple[int, float]]] = defaultdict(list)
+
+    last_id = 0
+    done = 0
+    while True:
+        batch = _load_batch(conn, last_id, batch_size)
+        if not batch:
+            break
+        last_id = batch[-1]["match_id"]
+
+        for item in batch:
+            signals = {}
+            for pool, series in item["odds"].items():
+                sig = jc_predict._signals(series)
+                if sig:
+                    signals[pool] = sig
+            if not signals:
+                continue
+
+            for row in jc_predict.analyze_match(signals):
+                pick = row["pick"]
+                if not pick or not row["odds"]:
+                    continue
+                raw_result = item["results"].get(row["pool"])
+                if not raw_result:
+                    continue
+                normalized = jc_predict.normalize_combination(row["pool"], raw_result)
+                if normalized is None:
+                    continue
+                profit = (float(row["odds"]) - 1.0) if normalized == pick else -1.0
+                returns[(row["pool"], row["method"])].append((item["match_id"], profit))
+
+        done += len(batch)
+        if progress:
+            progress(done)
+    return dict(returns)
+
+
+def significance(returns: dict, baseline_roi: float = BASELINE_RETURN_RATE - 1.0,
+                 alpha: float = 0.05) -> list[dict]:
+    """对每条路径做「ROI 是否显著区别于随机投注」的单样本 t 检验。
+
+    零假设 H0: ROI = baseline_roi（竞彩抽水决定的随机期望）。
+    返回含标准误、95% 置信区间与 p 值的明细，按 p 值升序。
+    """
+    import numpy as np
+    from scipy import stats
+
+    rows = []
+    for (pool, method), pairs in returns.items():
+        profits = np.asarray([p for _, p in pairs], dtype=float)
+        n = profits.size
+        if n < 30:
+            continue
+        mean = float(profits.mean())
+        se = float(profits.std(ddof=1) / np.sqrt(n))
+        if se == 0:
+            continue
+        t_stat = (mean - baseline_roi) / se
+        p_value = float(2 * (1 - stats.t.cdf(abs(t_stat), df=n - 1)))
+        crit = float(stats.t.ppf(1 - alpha / 2, df=n - 1))
+        rows.append({
+            "pool": pool, "method": method, "n": n,
+            "roi": mean,
+            "se": se,
+            "ci_low": mean - crit * se,
+            "ci_high": mean + crit * se,
+            "t": t_stat,
+            "p": p_value,
+            # 显著优于随机（单侧）
+            "beats_random": bool(p_value < alpha and mean > baseline_roi),
+        })
+    rows.sort(key=lambda r: r["p"])
+    return rows
+
+
+def paired_compare(returns: dict, pool: str, method_a: str, method_b: str) -> dict | None:
+    """同场配对比较两条路径（同一场比赛的收益差），比各自独立比较更可靠。
+
+    返回 {n, mean_diff, se, t, p, a_better}；样本不足或无法配对返回 None。
+    """
+    import numpy as np
+    from scipy import stats
+
+    a = dict(returns.get((pool, method_a)) or [])
+    b = dict(returns.get((pool, method_b)) or [])
+    common = sorted(set(a) & set(b))
+    if len(common) < 30:
+        return None
+
+    diff = np.asarray([a[m] - b[m] for m in common], dtype=float)
+    n = diff.size
+    mean = float(diff.mean())
+    se = float(diff.std(ddof=1) / np.sqrt(n))
+    if se == 0:
+        return None
+    t_stat = mean / se
+    p_value = float(2 * (1 - stats.t.cdf(abs(t_stat), df=n - 1)))
+    return {
+        "pool": pool, "a": method_a, "b": method_b, "n": n,
+        "mean_diff": mean, "se": se, "t": t_stat, "p": p_value,
+        # 差异是否显著；显著时看谁更好
+        "significant": bool(p_value < 0.05),
+        "a_better": bool(p_value < 0.05 and mean > 0),
+    }
+
+
 def compare_to_baseline(result: dict, baseline: float = BASELINE_RETURN_RATE) -> list[dict]:
     """把 ROI 与「随机投注的期望」（= -抽水）对比，排出真正的增量。"""
     rows = []
