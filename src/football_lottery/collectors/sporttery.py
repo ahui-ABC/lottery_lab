@@ -137,6 +137,8 @@ def fetch_history_page(page_no: int, page_size: int = 100) -> dict:
 
 # 竞彩足球（胜平负赔率）在另一条网关路径下
 JC_BASE_URL = "https://webapi.sporttery.cn/gateway/uniform/football"
+# 官网前端 commonV1.js 里写死的客户端标识，getFixedBonusV1 需要它
+JC_CLIENT_CODE = "3001"
 
 
 def fetch_jc_odds() -> dict:
@@ -150,6 +152,45 @@ def fetch_jc_odds() -> dict:
         {"poolCode": "had", "channel": "c"},
         base=JC_BASE_URL,
     )
+
+
+def fetch_uniform_match_result(
+    begin_date: str,
+    end_date: str,
+    page_no: int = 1,
+    page_size: int = 100,
+) -> dict:
+    """按日期范围取竞彩比赛列表（含开奖状态）。返回 value（含 matchResult/pages/total）。
+
+    用于历史回填：这是唯一能按日期系统罗列竞彩比赛的接口。
+    """
+    return _get_json(
+        "getUniformMatchResultV1.qry",
+        {
+            "matchBeginDate": begin_date,
+            "matchEndDate": end_date,
+            "leagueId": "",
+            "pageSize": page_size,
+            "pageNo": page_no,
+            "isFix": 0,
+            "matchPage": 1,
+            "pcOrWap": 1,
+        },
+        base=JC_BASE_URL,
+    ).get("value") or {}
+
+
+def fetch_fixed_bonus(match_id: int) -> dict:
+    """取单场比赛的 5 种玩法赔率与变化序列 + 开奖结果。返回 value。
+
+    实测每个玩法的列表长度 = 赔率变化次数（非多盘口）；同一场每玩法只有一个
+    goalLine。接口路径见 docs/superpowers/specs/2026-09-20-jc-history-sync-design.md。
+    """
+    return _get_json(
+        "getFixedBonusV1.qry",
+        {"clientCode": JC_CLIENT_CODE, "matchId": match_id},
+        base=JC_BASE_URL,
+    ).get("value") or {}
 
 
 def _to_float(value) -> float | None:

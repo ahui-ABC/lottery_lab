@@ -248,6 +248,52 @@ def cmd_collect_odds(args, cfg: dict) -> int:
         return 0
 
 
+def cmd_collect_jc_history(args, cfg: dict) -> int:
+    """回填竞彩历史：比赛列表 + 5 玩法赔率变化 + 开奖结果。"""
+    from football_lottery.collectors import jc_history, sporttery
+
+    if args.force and args.retry_failed:
+        print("--force 与 --retry-failed 互斥。", file=sys.stderr)
+        return 2
+
+    conn = _connect(cfg)
+    if args.log:
+        _redirect_output_to(args.log)
+
+    done = {"n": 0}
+
+    def _progress(result):
+        if result.get("breaker"):
+            print(f"[熔断] 失败率 {result['rate']:.0%}，并发降至 {result['workers']}", flush=True)
+            return
+        done["n"] += 1
+        print(f"[{result['date']}] 比赛 {result['matches']:>3} 场，"
+              f"赔率行 {result['odds_rows']:>5}，失败 {result['failed']}", flush=True)
+
+    try:
+        out = jc_history.sync_range(
+            conn,
+            from_date=args.from_date or jc_history.DEFAULT_FROM,
+            to_date=args.to_date,
+            workers=args.workers,
+            delay=args.delay,
+            page_size=args.page_size,
+            refresh_days=args.refresh_days,
+            force=args.force,
+            retry_failed=args.retry_failed,
+            progress=_progress,
+        )
+    except jc_history.CircuitBreakerTripped as exc:
+        print(f"已中止：{exc}", file=sys.stderr)
+        return 2
+    except sporttery.CollectorError as exc:
+        print(f"采集失败：{exc}", file=sys.stderr)
+        return 2
+
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+    return 0 if out["failed"] == 0 else 1
+
+
 def cmd_train(args, cfg: dict) -> int:
     from football_lottery.models import pipeline
     conn = _connect(cfg)
@@ -404,6 +450,19 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--file", help="本地开奖 CSV（与 import-fixtures 格式相同）")
     s.add_argument("--years", type=int, default=4, help="回溯年数；默认 4 年")
 
+    # collect-jc-history
+    s = sub.add_parser("collect-jc-history", help="回填竞彩历史（比赛列表 + 5 玩法赔率变化）")
+    s.add_argument("--from", dest="from_date", help="起始日期 YYYY-MM-DD；默认 2021-01-01")
+    s.add_argument("--to", dest="to_date", help="结束日期 YYYY-MM-DD；默认今天")
+    s.add_argument("--workers", type=int, default=4, help="并发线程数；1 = 串行")
+    s.add_argument("--delay", type=float, default=0.2, help="每个 worker 的请求间隔（秒）")
+    s.add_argument("--page-size", type=int, default=100, help="列表接口分页大小")
+    s.add_argument("--refresh-days", type=int, default=1,
+                   help="最近 N 天总是重跑（锚定 --to）；默认 1")
+    s.add_argument("--force", action="store_true", help="忽略完成标记，全部重跑")
+    s.add_argument("--retry-failed", action="store_true", help="只重跑失败过的日期")
+    s.add_argument("--log", help="把输出追加到该日志文件")
+
     # collect-odds
     s = sub.add_parser("collect-odds", help="采集竞彩胜平负赔率（盘口变化快照）")
     s.add_argument("--watch", action="store_true", help="按间隔循环采集，只在赔率变化时追加")
@@ -467,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_collect_draws(args, cfg)
     if args.cmd == "collect-odds":
         return cmd_collect_odds(args, cfg)
+    if args.cmd == "collect-jc-history":
+        return cmd_collect_jc_history(args, cfg)
     if args.cmd == "import-fixtures":
         return cmd_import_fixtures(args, cfg)
     if args.cmd == "map-fixtures":

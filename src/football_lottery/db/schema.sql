@@ -86,6 +86,43 @@ CREATE TABLE IF NOT EXISTS winnings (
   amount REAL,
   UNIQUE(plan_id, tier));
 
+-- 竞彩历史数据同步（子项目 1/3，见 docs/superpowers/specs/2026-09-20-jc-history-sync-design.md）
+CREATE TABLE IF NOT EXISTS jc_matches (
+  match_id INTEGER PRIMARY KEY,
+  match_date TEXT NOT NULL,
+  match_num TEXT,
+  league_id INTEGER,
+  league_name TEXT,
+  home_team TEXT, away_team TEXT,
+  home_team_id INTEGER, away_team_id INTEGER,
+  had_h REAL, had_d REAL, had_a REAL,
+  goal_line TEXT,
+  result_had TEXT, result_hhad TEXT, result_crs TEXT,
+  result_ttg TEXT, result_hafu TEXT,
+  captured_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_jc_matches_date ON jc_matches(match_date);
+
+-- 每次赔率变化一行；各玩法的完整选项存 JSON（crs 单条即 65 字段，不宜宽表）
+CREATE TABLE IF NOT EXISTS jc_odds_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  match_id INTEGER NOT NULL,
+  pool TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  update_date TEXT, update_time TEXT,
+  goal_line TEXT,
+  odds_json TEXT NOT NULL,
+  UNIQUE(match_id, pool, update_date, update_time));
+CREATE INDEX IF NOT EXISTS idx_jc_odds_match ON jc_odds_history(match_id, pool, seq);
+
+-- 断点续传：记录已完成的日期
+CREATE TABLE IF NOT EXISTS jc_sync_log (
+  sync_date TEXT PRIMARY KEY,
+  matches INTEGER NOT NULL DEFAULT 0,
+  odds_rows INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  failed_match_ids TEXT,
+  finished_at TEXT);
+
 CREATE TABLE IF NOT EXISTS model_versions (
   version TEXT PRIMARY KEY, model_type TEXT NOT NULL,
   params_json TEXT, metrics_json TEXT, trained_at TEXT);
