@@ -439,6 +439,37 @@ def cmd_plan_jc(args, cfg: dict) -> int:
     return 0
 
 
+def cmd_daily_jc(args, cfg: dict) -> int:
+    """竞彩每日一条龙：预测 → 生成串关方案 → 对未开奖的方案对奖。
+
+    供定时任务调用。「先跑几期看看」用它最省事 —— 只需每天跑一次。
+
+    时序说明：`predict-jc` 只处理**当时仍在售**的比赛（接口只返回可投注的），
+    因此不存在"用已结束比赛的结果反推"的前视偏差；越接近截止赔率越准，
+    所以建议固定在每天下午跑一次。
+    """
+    from types import SimpleNamespace
+
+    print("=" * 60, flush=True)
+    print("[1/3] 预测当期", flush=True)
+    rc1 = cmd_predict_jc(
+        SimpleNamespace(date=None, workers=args.workers, delay=args.delay), cfg)
+
+    print("[2/3] 生成串关方案", flush=True)
+    rc2 = cmd_plan_jc(
+        SimpleNamespace(date=None, pool=getattr(args, "pool", None),
+                        unit=None, min_combo=None), cfg)
+
+    print("[3/3] 对奖（含昨日方案）", flush=True)
+    rc3 = cmd_score_jc(SimpleNamespace(date=None), cfg)
+
+    from football_lottery.models import jc_parlay
+    conn = _connect(cfg)
+    print(json.dumps({"daily_jc": "done", "summary": jc_parlay.summary(conn)},
+                     ensure_ascii=False, indent=2), flush=True)
+    return 0 if (rc1 == 0 and rc2 == 0 and rc3 == 0) else 1
+
+
 def cmd_jc_summary(args, cfg: dict) -> int:
     """竞彩串关方案的历史盈亏。"""
     from football_lottery.models import jc_parlay
@@ -676,6 +707,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--unit", type=float, help="每注金额（元）；默认 2")
     s.add_argument("--min-combo", type=int, dest="min_combo", help="最小串关数；默认 2")
 
+    s = sub.add_parser("daily-jc", help="竞彩每日一条龙：预测 + 生成方案 + 对奖")
+    s.add_argument("--workers", type=int, default=8, help="预测并发线程数")
+    s.add_argument("--delay", type=float, default=0.02, help="每个 worker 的请求间隔（秒）")
+    s.add_argument("--pool", help="只做某个玩法")
+
     s = sub.add_parser("jc-summary", help="竞彩串关方案的历史盈亏")
     s.add_argument("--pool", help="只统计某个玩法")
     s.add_argument("--recent", type=int, help="附带最近 N 条方案明细")
@@ -766,6 +802,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_plan_jc(args, cfg)
     if args.cmd == "jc-summary":
         return cmd_jc_summary(args, cfg)
+    if args.cmd == "daily-jc":
+        return cmd_daily_jc(args, cfg)
     if args.cmd == "import-fixtures":
         return cmd_import_fixtures(args, cfg)
     if args.cmd == "map-fixtures":
