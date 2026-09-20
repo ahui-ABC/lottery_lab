@@ -7,6 +7,7 @@
 import argparse
 import io
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # 让 print 在 cp936 Windows 控制台也能输出中文（不影响文件 IO）
@@ -170,19 +171,21 @@ def _collect_odds_once(conn, sporttery) -> int:
 
     jc_odds = sporttery.parse_jc_odds(sporttery.fetch_jc_odds())
     if not jc_odds:
-        print(f"[{period_no}] 当日无竞彩在售比赛（休赛日？），跳过本轮")
+        # flush：watch 模式常被重定向到日志文件，不 flush 会一直看不到输出
+        print(f"[{period_no}] 当日无竞彩在售比赛（休赛日？），跳过本轮", flush=True)
         return 0
 
     matched = sporttery.match_to_period(conn, period_no, jc_odds)
     saved = sporttery.save_odds_snapshots(conn, period_no, jc_odds)
     print(json.dumps({
+        "at": datetime.now().isoformat(timespec="seconds"),
         "period_no": period_no,
         "jc_matches": len(jc_odds),
         "matched": matched["matched"],
         "unmatched_seq": matched["unmatched"],
         "snapshots_added": saved["changed"],
         "unchanged": saved["skipped"],
-    }, ensure_ascii=False))
+    }, ensure_ascii=False), flush=True)
     return 0
 
 
@@ -201,17 +204,18 @@ def cmd_collect_odds(args, cfg: dict) -> int:
             print(f"采集失败：{exc}", file=sys.stderr)
             return 2
 
-    print(f"watch 模式：每 {interval} 秒采集一次，赔率有变化才追加快照。Ctrl+C 停止。")
+    print(f"watch 模式：每 {interval} 秒采集一次，赔率有变化才追加快照。Ctrl+C 停止。",
+          flush=True)
     try:
         while True:
             try:
                 _collect_odds_once(conn, sporttery)
             except sporttery.CollectorError as exc:
                 # watch 模式不因单次失败退出
-                print(f"采集失败（下轮重试）：{exc}", file=sys.stderr)
+                print(f"采集失败（下轮重试）：{exc}", file=sys.stderr, flush=True)
             _time.sleep(interval)
     except KeyboardInterrupt:
-        print("\n已停止 watch。")
+        print("\n已停止 watch。", flush=True)
         return 0
 
 
