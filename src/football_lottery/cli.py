@@ -46,7 +46,7 @@ def data_health(conn) -> dict:
             continue
         try:
             j = _json.loads(r[0])
-            if "avg" in j or "b365" in j or "max" in j:
+            if any(k in j for k in ("jc", "avg", "b365", "max")):
                 with_odds += 1
         except Exception:
             pass
@@ -83,7 +83,7 @@ def data_health(conn) -> dict:
                 j = _json.loads(odds)
             except Exception:
                 j = {}
-            if not any(k in j for k in ("avg", "b365", "max")):
+            if not any(k in j for k in ("jc", "avg", "b365", "max")):
                 current_missing_odds += 1
     out = {
         "matches_total": total,
@@ -156,6 +156,63 @@ def cmd_collect_draws(args, cfg: dict) -> int:
         "skipped": out["skipped"],
     }, ensure_ascii=False, indent=2))
     return 0
+
+
+def _collect_odds_once(conn, sporttery) -> int:
+    """拉一次竞彩赔率并写快照。返回进程退出码（watch 模式下忽略）。"""
+    row = conn.execute(
+        "SELECT period_no FROM periods WHERE status='current' ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        print("数据库中无当期期次；请先执行 collect-period。", file=sys.stderr)
+        return 2
+    period_no = row["period_no"]
+
+    jc_odds = sporttery.parse_jc_odds(sporttery.fetch_jc_odds())
+    if not jc_odds:
+        print(f"[{period_no}] 当日无竞彩在售比赛（休赛日？），跳过本轮")
+        return 0
+
+    matched = sporttery.match_to_period(conn, period_no, jc_odds)
+    saved = sporttery.save_odds_snapshots(conn, period_no, jc_odds)
+    print(json.dumps({
+        "period_no": period_no,
+        "jc_matches": len(jc_odds),
+        "matched": matched["matched"],
+        "unmatched_seq": matched["unmatched"],
+        "snapshots_added": saved["changed"],
+        "unchanged": saved["skipped"],
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_collect_odds(args, cfg: dict) -> int:
+    """采集竞彩胜平负赔率；--watch 时按固定间隔轮询并只在赔率变化时追加快照。"""
+    from football_lottery.collectors import sporttery
+    import time as _time
+
+    conn = _connect(cfg)
+    interval = int(args.interval or 600)
+
+    if not getattr(args, "watch", False):
+        try:
+            return _collect_odds_once(conn, sporttery)
+        except sporttery.CollectorError as exc:
+            print(f"采集失败：{exc}", file=sys.stderr)
+            return 2
+
+    print(f"watch 模式：每 {interval} 秒采集一次，赔率有变化才追加快照。Ctrl+C 停止。")
+    try:
+        while True:
+            try:
+                _collect_odds_once(conn, sporttery)
+            except sporttery.CollectorError as exc:
+                # watch 模式不因单次失败退出
+                print(f"采集失败（下轮重试）：{exc}", file=sys.stderr)
+            _time.sleep(interval)
+    except KeyboardInterrupt:
+        print("\n已停止 watch。")
+        return 0
 
 
 def cmd_train(args, cfg: dict) -> int:
@@ -314,6 +371,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--file", help="本地开奖 CSV（与 import-fixtures 格式相同）")
     s.add_argument("--years", type=int, default=4, help="回溯年数；默认 4 年")
 
+    # collect-odds
+    s = sub.add_parser("collect-odds", help="采集竞彩胜平负赔率（盘口变化快照）")
+    s.add_argument("--watch", action="store_true", help="按间隔循环采集，只在赔率变化时追加")
+    s.add_argument("--interval", type=int, default=600, help="watch 模式间隔秒数；默认 600")
+
     # import-fixtures
     s = sub.add_parser("import-fixtures", help="导入历史期次对阵 CSV（兜底 T5）")
     s.add_argument("--file", required=True, help="fixture CSV 路径")
@@ -369,6 +431,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_collect_period(args, cfg)
     if args.cmd == "collect-draws":
         return cmd_collect_draws(args, cfg)
+    if args.cmd == "collect-odds":
+        return cmd_collect_odds(args, cfg)
     if args.cmd == "import-fixtures":
         return cmd_import_fixtures(args, cfg)
     if args.cmd == "map-fixtures":

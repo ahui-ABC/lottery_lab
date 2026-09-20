@@ -44,6 +44,16 @@ CREATE TABLE IF NOT EXISTS period_matches (
   league_cn TEXT,
   UNIQUE(period_id, seq));
 
+CREATE TABLE IF NOT EXISTS odds_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  period_match_id INTEGER NOT NULL REFERENCES period_matches(id),
+  source TEXT NOT NULL,
+  captured_at TEXT NOT NULL,
+  update_time TEXT,
+  h REAL, d REAL, a REAL,
+  UNIQUE(period_match_id, source, captured_at));
+CREATE INDEX IF NOT EXISTS idx_odds_snapshots_pm ON odds_snapshots(period_match_id);
+
 CREATE TABLE IF NOT EXISTS predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   period_match_id INTEGER NOT NULL REFERENCES period_matches(id),

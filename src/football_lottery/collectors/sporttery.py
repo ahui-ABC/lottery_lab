@@ -68,9 +68,17 @@ def _http_get(url: str, params: dict | None, timeout: int = 20):
     )
 
 
-def _get_json(path: str, params: dict | None = None, timeout: int = 20) -> dict:
-    """请求官方接口并返回 JSON；任何失败都抛 CollectorError。"""
-    url = f"{BASE_URL}/{path}"
+def _get_json(
+    path: str,
+    params: dict | None = None,
+    timeout: int = 20,
+    base: str | None = None,
+) -> dict:
+    """请求官方接口并返回 JSON；任何失败都抛 CollectorError。
+
+    base 可覆盖默认前缀（竞彩足球的端点在 /gateway/uniform/football/ 下）。
+    """
+    url = f"{base or BASE_URL}/{path}"
     try:
         resp = _http_get(url, params, timeout=timeout)
     except Exception as exc:  # 网络层异常统一收敛
@@ -125,6 +133,63 @@ def fetch_history_page(page_no: int, page_size: int = 100) -> dict:
         },
     )
     return body.get("value") or {}
+
+
+# 竞彩足球（胜平负赔率）在另一条网关路径下
+JC_BASE_URL = "https://webapi.sporttery.cn/gateway/uniform/football"
+
+
+def fetch_jc_odds() -> dict:
+    """当日竞彩足球在售列表（含实时胜平负赔率）。
+
+    注意 value.matchInfoList[].subMatchList 里的 businessDate 是**销售日**，
+    不是比赛日：次日凌晨开赛的场次也归入当天的销售日。
+    """
+    return _get_json(
+        "getMatchCalculatorV1.qry",
+        {"poolCode": "had", "channel": "c"},
+        base=JC_BASE_URL,
+    )
+
+
+def _to_float(value) -> float | None:
+    try:
+        out = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return out if out > 0 else None
+
+
+def parse_jc_odds(payload: dict) -> list[dict]:
+    """竞彩响应 → [{home_cn, away_cn, league_cn, h, d, a, update_time}]。
+
+    赔率缺失或非数字的场次直接跳过（不中断整批）。
+    队名取全名字段：实测 AllName 命中 14/14，而 AbbName 只有 6/14。
+    """
+    out: list[dict] = []
+    for group in (payload.get("value") or {}).get("matchInfoList") or []:
+        for item in group.get("subMatchList") or []:
+            had = item.get("had") or {}
+            h, d, a = (_to_float(had.get("h")), _to_float(had.get("d")),
+                       _to_float(had.get("a")))
+            if h is None or d is None or a is None:
+                continue
+            home = _norm_team_name(item.get("homeTeamAllName"))
+            away = _norm_team_name(item.get("awayTeamAllName"))
+            if not home or not away:
+                continue
+            update = " ".join(
+                x for x in ((had.get("updateDate") or "").strip(),
+                            (had.get("updateTime") or "").strip()) if x
+            )
+            out.append({
+                "home_cn": home,
+                "away_cn": away,
+                "league_cn": item.get("leagueAbbName") or None,
+                "h": h, "d": d, "a": a,
+                "update_time": update or None,
+            })
+    return out
 
 
 # ---- 解析层（纯函数） ------------------------------------------------------------
@@ -326,6 +391,95 @@ def collect_history(
         time.sleep(pause)
 
     return {"periods_saved": saved, "skipped": skipped, "period_nos": period_nos}
+
+
+# ---- 竞彩赔率：匹配与快照 ----------------------------------------------------------
+def _period_rows(conn, period_no: str) -> list:
+    period = conn.execute(
+        "SELECT id FROM periods WHERE period_no=?", (period_no,)
+    ).fetchone()
+    if not period:
+        return []
+    return list(conn.execute(
+        """SELECT id, seq, home_name_cn, away_name_cn, odds_json
+           FROM period_matches WHERE period_id=? ORDER BY seq""",
+        (period["id"],),
+    ))
+
+
+def _index_jc(jc_odds: list[dict]) -> dict[tuple[str, str], dict]:
+    """按（主队名, 客队名）建索引。"""
+    return {(m["home_cn"], m["away_cn"]): m for m in jc_odds}
+
+
+def match_to_period(conn, period_no: str, jc_odds: list[dict]) -> dict:
+    """把竞彩场次按队名对匹配到当期对阵。返回 {matched, unmatched}。
+
+    两边队名同源（都是体彩官方中文名），无需经过 team_alias。
+    """
+    index = _index_jc(jc_odds)
+    matched = 0
+    unmatched: list[int] = []
+    for row in _period_rows(conn, period_no):
+        key = (row["home_name_cn"], row["away_name_cn"])
+        if key in index:
+            matched += 1
+        else:
+            unmatched.append(row["seq"])
+    return {"matched": matched, "unmatched": unmatched}
+
+
+def save_odds_snapshots(conn, period_no: str, jc_odds: list[dict]) -> dict:
+    """按赔率变化追加快照，并刷新 period_matches.odds_json 的 jc 键。
+
+    - 与该场最新快照的 h/d/a 完全一致 → 不写（"有变化才保存"）
+    - 有变化 → **普通 INSERT** 追加一行（绝不用 store.upsert：
+      它的 ON CONFLICT DO UPDATE 会静默覆盖历史快照）
+    - odds_json 做 read-modify-write，保留既有键（如 avg/max/b365）
+    """
+    from datetime import datetime
+
+    index = _index_jc(jc_odds)
+    changed = skipped = unmatched = 0
+    for row in _period_rows(conn, period_no):
+        jc = index.get((row["home_name_cn"], row["away_name_cn"]))
+        if not jc:
+            unmatched += 1
+            continue
+
+        latest = conn.execute(
+            """SELECT h, d, a FROM odds_snapshots
+               WHERE period_match_id=? AND source='jc'
+               ORDER BY id DESC LIMIT 1""",
+            (row["id"],),
+        ).fetchone()
+        if latest and (latest["h"], latest["d"], latest["a"]) == (jc["h"], jc["d"], jc["a"]):
+            skipped += 1
+            continue
+
+        conn.execute(
+            """INSERT INTO odds_snapshots(
+                   period_match_id, source, captured_at, update_time, h, d, a)
+               VALUES(?, 'jc', ?, ?, ?, ?, ?)""",
+            (row["id"], datetime.now().isoformat(timespec="microseconds"),
+             jc.get("update_time"), jc["h"], jc["d"], jc["a"]),
+        )
+
+        try:
+            merged = json.loads(row["odds_json"] or "{}")
+            if not isinstance(merged, dict):
+                merged = {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            merged = {}
+        merged["jc"] = {"h": jc["h"], "d": jc["d"], "a": jc["a"]}
+        conn.execute(
+            "UPDATE period_matches SET odds_json=? WHERE id=?",
+            (json.dumps(merged), row["id"]),
+        )
+        changed += 1
+
+    conn.commit()
+    return {"changed": changed, "skipped": skipped, "unmatched": unmatched}
 
 
 # ---- fixture CSV 导入（兜底主路径） ------------------------------------------------
