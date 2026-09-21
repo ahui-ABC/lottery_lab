@@ -152,7 +152,11 @@ def page_backtest(request: Request):
 
 @app.get("/collect", response_class=HTMLResponse)
 def page_collect(request: Request):
-    return templates.TemplateResponse(request, "collect.html", {})
+    """采集页。任务清单在服务端按分组渲染好，JS 只负责填状态 —— 不在前端再抄一份。"""
+    from football_lottery import jobs
+
+    return templates.TemplateResponse(request, "collect.html",
+                                      {"job_groups": jobs.grouped()})
 
 
 @app.get("/jc", response_class=HTMLResponse)
@@ -312,6 +316,34 @@ def api_daemon_stop():
     from football_lottery import daemon_ctl
 
     return daemon_ctl.stop()
+
+
+# ---------------- 一次性采集任务 ----------------
+# 与上面的守护进程不同：那些是跑完就结束的动作，一次只允许跑一个
+# （见 jobs 模块顶部：并发抓取曾经把整个 IP 被 WAF 封过）。
+
+@app.get("/api/jobs")
+def api_jobs():
+    """全部任务的状态。"""
+    from football_lottery import jobs
+
+    return jobs.status()
+
+
+@app.post("/api/jobs/{key}/start")
+def api_job_start(key: str):
+    """启动一个任务。失败原因（未知 key / 已有任务在跑）放在 message 里，HTTP 仍 200。"""
+    from football_lottery import jobs
+
+    return jobs.start(key)
+
+
+@app.post("/api/jobs/{key}/stop")
+def api_job_stop(key: str):
+    """停止正在跑的任务。"""
+    from football_lottery import jobs
+
+    return jobs.stop(key)
 
 
 # ---------------- API ----------------

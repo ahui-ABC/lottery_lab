@@ -1,69 +1,189 @@
 {% extends "base.html" %}
 {% block title %}采集{% endblock %}
 {% block content %}
-<h2>赔率采集</h2>
+<h2>采集</h2>
 <p class="hint">
-  采集竞彩胜平负赔率，每 10 分钟一轮；<strong>只在赔率变化时追加快照</strong>，
-  用来记录盘口变化规律。新版次开卖时会自动抓取对阵，无需手动干预。
+  手动触发数据采集。<strong>同一时刻只允许跑一个任务</strong> ——
+  并发抓取会打爆对端站点（曾经因此被封过整个 IP），所以这里刻意做成串行。
+  任务在后台跑，关掉页面也不影响，跑完看下面的日志。
 </p>
 
+<h3>竞彩赔率 · 自动轮询</h3>
 <div class="daemon-panel">
   <span id="daemon-state" class="daemon-state">查询中…</span>
-  <button id="daemon-start" type="button">启动采集</button>
-  <button id="daemon-stop" type="button">停止采集</button>
+  <button id="daemon-start" type="button">启动</button>
+  <button id="daemon-stop" type="button">停止</button>
   <span class="hint" id="daemon-msg"></span>
 </div>
-
+<p class="hint">
+  常驻进程，每 10 分钟一轮，<strong>只在赔率变化时追加快照</strong>，用来记录盘口变化规律。
+  它和下面的手动任务互不影响。
+</p>
 <p id="snapshot-info" class="hint"></p>
 
-<h3>采集日志</h3>
-<pre id="daemon-log" class="printable">加载中…</pre>
+{% for group, specs in job_groups %}
+<h3>{{ group }}</h3>
+<div class="card">
+  {% for s in specs %}
+  <div class="job-row" data-key="{{ s.key }}">
+    <span class="job-label">{{ s.label }}</span>
+    <span class="hint job-hint">{{ s.hint }}</span>
+    <span class="job-status hint">—</span>
+    <button class="job-start" data-key="{{ s.key }}" type="button">开始</button>
+    <button class="job-stop" data-key="{{ s.key }}" type="button">停止</button>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<h3>任务日志 <span class="hint" id="job-log-title"></span></h3>
+<pre id="job-log" class="printable">（还没有跑过任务）</pre>
+
+<details>
+  <summary>守护进程日志</summary>
+  <pre id="daemon-log" class="printable">加载中…</pre>
+</details>
 {% endblock %}
+
 {% block scripts %}
 <script>
-const stateEl = document.getElementById("daemon-state");
-const msgEl = document.getElementById("daemon-msg");
-const logEl = document.getElementById("daemon-log");
-const snapEl = document.getElementById("snapshot-info");
-const startBtn = document.getElementById("daemon-start");
-const stopBtn = document.getElementById("daemon-stop");
+const daemonState = document.getElementById("daemon-state");
+const daemonMsg = document.getElementById("daemon-msg");
+const daemonLog = document.getElementById("daemon-log");
+const snapshotEl = document.getElementById("snapshot-info");
+const daemonStart = document.getElementById("daemon-start");
+const daemonStop = document.getElementById("daemon-stop");
 
-function renderStatus(j) {
+const jobLog = document.getElementById("job-log");
+const jobLogTitle = document.getElementById("job-log-title");
+let daemonRunning = false;
+let pollTimer = null;
+
+// ---- 手动任务 --------------------------------------------------------------
+
+function renderJobs(data) {
+  const byKey = Object.fromEntries(data.jobs.map(j => [j.key, j]));
+  document.querySelectorAll(".job-row").forEach(row => {
+    const job = byKey[row.dataset.key];
+    if (!job) return;
+    const status = row.querySelector(".job-status");
+    const startBtn = row.querySelector(".job-start");
+    const stopBtn = row.querySelector(".job-stop");
+
+    // 守护进程正在轮询时，手动再抓一次赔率是白费 —— 置灰并说明原因
+    const busyWithDaemon = row.dataset.key === "collect-odds" && daemonRunning;
+    startBtn.disabled = data.running_key !== null || busyWithDaemon;
+
+    if (job.running) {
+      status.textContent =
+        `运行中 · ${Math.round(job.elapsed_sec)} 秒 · PID ${job.pid}`;
+      status.className = "job-status pos";
+      stopBtn.disabled = false;
+    } else if (busyWithDaemon) {
+      status.textContent = "自动轮询已在运行，无需手动";
+      status.className = "job-status hint";
+      stopBtn.disabled = true;
+    } else if (job.ok === true) {
+      status.textContent = "已完成";
+      status.className = "job-status pos";
+      stopBtn.disabled = true;
+    } else if (job.ok === false) {
+      status.textContent = "失败，看下方日志";
+      status.className = "job-status neg";
+      stopBtn.disabled = true;
+    } else {
+      status.textContent = job.finished_at ? "已停止" : "—";
+      status.className = "job-status hint";
+      stopBtn.disabled = true;
+    }
+  });
+
+  // 日志区优先显示在跑的任务；空闲时显示最近结束的那个 —— 失败时正是要看它的日志
+  const running = data.jobs.find(j => j.running);
+  if (running) {
+    jobLogTitle.textContent = `· ${running.label}（运行中）`;
+    jobLog.textContent = (running.log_tail || []).join("\n") || "（正在启动…）";
+    return;
+  }
+  const latest = data.jobs
+    .filter(j => j.finished_at)
+    .sort((a, b) => b.finished_at.localeCompare(a.finished_at))[0];
+  if (latest) {
+    const verdict = latest.ok === true ? "已完成" : latest.ok === false ? "失败" : "已停止";
+    jobLogTitle.textContent = `· ${latest.label}（${verdict} · ${latest.finished_at.slice(11, 19)}）`;
+    jobLog.textContent = (latest.log_tail || []).join("\n") || "（没有输出）";
+  }
+}
+
+function schedule(delay) {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(
+    () => refreshJobs().catch(() => schedule(10000)), delay);
+}
+
+async function refreshJobs() {
+  const data = await fetch("/api/jobs").then(r => r.json());
+  renderJobs(data);
+  // 有任务在跑时快轮询（要看到日志滚动），空闲时慢一点
+  schedule(data.running_key !== null ? 2000 : 10000);
+}
+
+async function jobAct(key, action) {
+  const j = await fetch(`/api/jobs/${key}/${action}`, {method: "POST"})
+    .then(r => r.json());
+  if (j.message) jobLogTitle.textContent = `· ${j.message}`;
+  await refreshJobs();
+}
+
+document.querySelectorAll(".job-start").forEach(btn => {
+  btn.onclick = () => jobAct(btn.dataset.key, "start");
+});
+document.querySelectorAll(".job-stop").forEach(btn => {
+  btn.onclick = () => jobAct(btn.dataset.key, "stop");
+});
+
+// ---- 守护进程 --------------------------------------------------------------
+
+function renderDaemon(j) {
+  daemonRunning = j.running;
   if (j.running) {
-    stateEl.textContent = `运行中 · PID ${j.pid} · 每 ${j.interval} 秒`;
-    stateEl.className = "daemon-state daemon-on";
+    daemonState.textContent = `运行中 · PID ${j.pid} · 每 ${j.interval} 秒`;
+    daemonState.className = "daemon-state daemon-on";
   } else {
-    stateEl.textContent = "已停止";
-    stateEl.className = "daemon-state daemon-off";
+    daemonState.textContent = "已停止";
+    daemonState.className = "daemon-state daemon-off";
   }
-  startBtn.disabled = j.running;
-  stopBtn.disabled = !j.running;
-  logEl.textContent = (j.log_lines || []).join("\n") || "（暂无日志）";
+  daemonStart.disabled = j.running;
+  daemonStop.disabled = !j.running;
+  daemonLog.textContent = (j.log_lines || []).join("\n") || "（暂无日志）";
   const s = j.snapshots || {};
-  snapEl.textContent = s.total == null ? "" :
+  snapshotEl.textContent = s.total == null ? "" :
     `快照 ${s.total} 条，其中 ${s.periods_with_changes} 场有过赔率变化` +
-    (s.last_captured_at ? `；最近采集 ${s.last_captured_at.slice(0, 19).replace("T", " ")}` : "");
-  if (j.stale_pid) {
-    msgEl.textContent = `（发现残留锁 PID ${j.stale_pid}，点启动会自动接管）`;
-  }
+    (s.last_captured_at
+      ? `；最近采集 ${s.last_captured_at.slice(0, 19).replace("T", " ")}` : "");
+  daemonMsg.textContent = j.stale_pid
+    ? `（发现残留锁 PID ${j.stale_pid}，点启动会自动接管）` : "";
 }
 
-async function refresh() {
-  const j = await fetch("/api/daemon/status").then(r => r.json());
-  renderStatus(j);
+async function refreshDaemon() {
+  renderDaemon(await fetch("/api/daemon/status").then(r => r.json()));
 }
 
-async function act(path) {
-  msgEl.textContent = "处理中…";
+async function daemonAct(path) {
+  daemonMsg.textContent = "处理中…";
   const j = await fetch(path, {method: "POST"}).then(r => r.json());
-  msgEl.textContent = j.message || "";
-  await refresh();
+  daemonMsg.textContent = j.message || "";
+  await refreshDaemon();
+  await refreshJobs();   // 守护进程状态变了，「抓当期赔率快照」是否可用要跟着变
 }
 
-startBtn.onclick = () => act("/api/daemon/start");
-stopBtn.onclick = () => act("/api/daemon/stop");
+daemonStart.onclick = () => daemonAct("/api/daemon/start");
+daemonStop.onclick = () => daemonAct("/api/daemon/stop");
 
-refresh().catch(e => { logEl.textContent = "加载失败：" + e; });
-setInterval(refresh, 10000);   // 后台跑着时自动刷新状态
+// 先拿守护进程状态再拉任务状态：任务渲染要用到 daemonRunning
+refreshDaemon()
+  .then(refreshJobs)
+  .catch(e => { jobLog.textContent = "加载失败：" + e; });
+setInterval(refreshDaemon, 10000);
 </script>
 {% endblock %}

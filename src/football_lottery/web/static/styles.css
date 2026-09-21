@@ -354,6 +354,22 @@ button.primary:hover:not(:disabled),
 #solve:hover:not(:disabled), #load-probs:hover:not(:disabled),
 #daemon-start:hover:not(:disabled) { background: rgba(76, 194, 255, .24); }
 
+/* ---- 手动采集任务行 ---------------------------------------------------- */
+.job-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--border);
+}
+.job-row:last-child { border-bottom: none; }
+.job-label { min-width: 12em; font-weight: 500; }
+.job-hint { min-width: 6em; }
+.job-status { flex: 1; text-align: right; }
+.job-status.pos { color: var(--ok); }
+.job-status.neg { color: var(--bad); }
+.job-row button { min-width: 4.5em; padding: 5px 12px; font-size: 13px; }
+
 /* ---- 明细折叠 ---------------------------------------------------------- */
 details { margin-top: 8px; }
 details summary {
