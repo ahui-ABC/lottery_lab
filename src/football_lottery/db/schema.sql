@@ -165,3 +165,42 @@ CREATE INDEX IF NOT EXISTS idx_jc_parlay_date ON jc_parlay_plans(plan_date);
 CREATE TABLE IF NOT EXISTS model_versions (
   version TEXT PRIMARY KEY, model_type TEXT NOT NULL,
   params_json TEXT, metrics_json TEXT, trained_at TEXT);
+
+-- 数字彩开奖（大乐透/双色球/排列三/排列五/福彩3D）
+--
+-- 与 jc_odds_history 的 append-only 不同：开奖号码是**既成事实**，重抓同一期
+-- 应当得到完全相同的值。若不同，只可能是数据源修正或我方解析 bug —— 所以这里
+-- 用 upsert 覆盖写入，而不是追加快照。
+CREATE TABLE IF NOT EXISTS lottery_draw (
+  lottery     TEXT NOT NULL,     -- dlt/ssq/p3/p5/3d
+  issue       TEXT NOT NULL,     -- '2026107'
+  draw_date   TEXT NOT NULL,     -- 'YYYY-MM-DD'
+  numbers     TEXT NOT NULL,     -- {"front":["02",...],"back":["04","10"]} 或 {"digits":["0","6","4"]}
+  draw_order  TEXT,              -- JSON 出球顺序；排列类无此字段
+  sales       INTEGER,           -- 本期投注金额（元）
+  jackpot     INTEGER,           -- 滚入下期奖金（元）
+  prizes      TEXT,              -- [{"tier":"一等奖","cond":"5+2","winners":3,"amount":10000000}]
+  fetched_at  TEXT,
+  PRIMARY KEY (lottery, issue));
+CREATE INDEX IF NOT EXISTS idx_lottery_draw_date ON lottery_draw(lottery, draw_date);
+
+-- 每期每策略的推荐注单；开奖后回填 hits/prize。术语用 bets 与 jc_parlay_plans.bets_json 一致。
+CREATE TABLE IF NOT EXISTS lottery_prediction (
+  lottery      TEXT NOT NULL,
+  target_issue TEXT NOT NULL,
+  strategy     TEXT NOT NULL,
+  bets         TEXT NOT NULL,    -- JSON 注单列表，一注一个元素
+  created_at   TEXT NOT NULL,
+  hits         TEXT,             -- JSON 每注命中明细
+  prize        INTEGER,          -- 该策略该期总奖金（元）
+  PRIMARY KEY (lottery, target_issue, strategy));
+
+-- 回测结果落库，供页面读取（页面实时跑回测太慢）
+CREATE TABLE IF NOT EXISTS lottery_backtest (
+  lottery  TEXT NOT NULL,
+  strategy TEXT NOT NULL,
+  params   TEXT,                 -- JSON {window, bets, draws}
+  metrics  TEXT,                 -- JSON {roi, invested, returned, avg_hits, win_rate}
+  paired   TEXT,                 -- JSON {se, ci_low, ci_high, p, beats_random}
+  ran_at   TEXT,
+  PRIMARY KEY (lottery, strategy));
