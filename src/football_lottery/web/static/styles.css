@@ -76,6 +76,10 @@ nav a {
 
 nav a:hover { color: var(--text); background: var(--bg-elev-2); }
 
+/* 当前页：文字高亮 + 淡底，与 hover 区分开 */
+nav a.active { color: var(--info); background: var(--info-dim); }
+nav a.brand.active { color: var(--info); background: none; }
+
 /* 品牌：左侧色块 + 字重，避免用 emoji；是链接（回首页），所以覆盖 nav a 的样式 */
 nav a.brand {
   font-weight: 700;
@@ -346,6 +350,12 @@ details summary:hover { text-decoration: underline; }
   display: flex; justify-content: space-between;
   font-size: 12px; color: var(--text-dim); font-family: var(--mono);
 }
+
+/* 概览页：整块卡片可点 */
+.tile-link { display: block; text-decoration: none; color: inherit; }
+.tile-link .stat-row { transition: transform .12s; }
+.tile-link:hover .stat-row { transform: translateY(-2px); }
+.tile-link:hover .stat { border-color: var(--info); }
 
 /* ---- 弹框 -------------------------------------------------------------- */
 .modal {

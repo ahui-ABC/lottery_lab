@@ -62,9 +62,44 @@ def _get_conn():
 
 
 # ---------------- 页面 ----------------
-@app.get("/")
-def root():
-    return RedirectResponse(url="/predict")
+@app.get("/", response_class=HTMLResponse)
+def root(request: Request):
+    """概览首页：各模块摘要 + 快捷入口。
+
+    此前 `/` 直接 302 到 `/predict`，导致导航左侧的品牌与「本期预测」指向
+    同一页、看着像重复。改为真正的概览页。
+    """
+    from football_lottery import daemon_ctl
+    from football_lottery.models import jc_parlay
+
+    conn = _get_conn()
+    period = _period_with_matches(conn)
+
+    today = date.today().isoformat()
+    jc = {
+        "today": today,
+        "predictions": conn.execute(
+            "SELECT COUNT(DISTINCT match_id) FROM jc_predictions WHERE predicted_on=?",
+            (today,)).fetchone()[0],
+        "plans_pending": conn.execute(
+            "SELECT COUNT(*) FROM jc_parlay_plans WHERE scored_at IS NULL").fetchone()[0],
+        "plans_scored": conn.execute(
+            "SELECT COUNT(*) FROM jc_parlay_plans WHERE scored_at IS NOT NULL").fetchone()[0],
+        "plans_today": conn.execute(
+            "SELECT COUNT(*) FROM jc_parlay_plans WHERE plan_date=?", (today,)).fetchone()[0],
+    }
+    running, _ = daemon_ctl.is_running()
+    last = conn.execute(
+        "SELECT MAX(captured_at) FROM odds_snapshots").fetchone()[0]
+
+    return templates.TemplateResponse(request, "overview.html", {
+        "period": period,
+        "jc": jc,
+        "summary": jc_parlay.summary(conn),
+        "timeline": jc_parlay.timeline(conn, limit=60),
+        "daemon_running": running,
+        "last_snapshot": last,
+    })
 
 
 @app.get("/predict", response_class=HTMLResponse)

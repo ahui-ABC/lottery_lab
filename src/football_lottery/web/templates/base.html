@@ -7,13 +7,15 @@
 </head>
 <body>
 <nav>
-  <a class="brand" href="/">足彩分析</a>
-  <a href="/predict">本期预测</a>
-  <a href="/plan">推荐方案</a>
-  <a href="/history">历史战绩</a>
-  <a href="/jc">竞彩方案</a>
-  <a href="/backtest">回测报告</a>
-  <a href="/collect">采集</a>
+  {# 当前页高亮由服务端渲染，避免前端 JS 判断导致的闪烁 #}
+  {% set path = request.url.path if request else '' %}
+  <a class="brand{% if path == '/' %} active{% endif %}" href="/">足彩分析</a>
+  <a href="/predict"  {% if path == '/predict'  %}class="active"{% endif %}>本期预测</a>
+  <a href="/plan"     {% if path == '/plan'     %}class="active"{% endif %}>推荐方案</a>
+  <a href="/history"  {% if path == '/history'  %}class="active"{% endif %}>历史战绩</a>
+  <a href="/jc"       {% if path == '/jc'       %}class="active"{% endif %}>竞彩方案</a>
+  <a href="/backtest" {% if path == '/backtest' %}class="active"{% endif %}>回测报告</a>
+  <a href="/collect"  {% if path == '/collect'  %}class="active"{% endif %}>采集</a>
 </nav>
 <main>{% block content %}{% endblock %}</main>
 <script src="/static/app.js"></script>

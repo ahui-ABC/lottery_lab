@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}概览{% endblock %}
+{% block content %}
+<h2>概览</h2>
+<p class="hint">各模块当前状态。点击卡片进入对应页面。</p>
+
+<h3>当期胜负彩</h3>
+{% if period %}
+<a class="tile-link" href="/predict">
+  <div class="stat-row">
+    <div class="stat info">
+      <div class="stat-label">期号</div>
+      <div class="stat-value">{{ period.period_no }}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">状态</div>
+      <div class="stat-value" style="font-size:16px">
+        {% if period.is_current %}在售{% else %}历史期次{% endif %}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">销售截止</div>
+      <div class="stat-value" style="font-size:16px">{{ period.sale_end or "—" }}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">场次</div>
+      <div class="stat-value">{{ period.matches | length }}</div>
+    </div>
+  </div>
+</a>
+{% else %}
+<p class="hint">数据库内暂无期次。先跑 <code>collect-period</code>。</p>
+{% endif %}
+
+<h3>竞彩串关</h3>
+<a class="tile-link" href="/jc">
+  <div class="stat-row">
+    <div class="stat info">
+      <div class="stat-label">今日可投注</div>
+      <div class="stat-value">{{ jc.predictions }}<span style="font-size:14px;color:var(--text-dim)"> 场</span></div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">今日方案</div>
+      <div class="stat-value">{{ jc.plans_today }}</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">待开奖</div>
+      <div class="stat-value">{{ jc.plans_pending }}</div>
+    </div>
+    <div class="stat {{ 'ok' if (summary.total.profit or 0) > 0 else ('bad' if jc.plans_scored else '') }}">
+      <div class="stat-label">累计盈亏</div>
+      <div class="stat-value">
+        {% if jc.plans_scored %}
+          {{ "¥%.2f" | format(summary.total.profit) }}
+        {% else %}—{% endif %}
+      </div>
+    </div>
+  </div>
+</a>
+
+{% if timeline and timeline | length > 1 %}
+<svg class="spark" id="ov-spark" viewBox="0 0 600 96" preserveAspectRatio="none"
+     role="img" aria-label="累计盈亏曲线"></svg>
+<div class="spark-legend" id="ov-spark-legend"></div>
+<script id="ov-timeline" type="application/json">{{ timeline | tojson }}</script>
+{% else %}
+<p class="hint">还没有已开奖的串关方案；跑满 2 期后这里会显示盈亏曲线。</p>
+{% endif %}
+
+<h3>采集状态</h3>
+<a class="tile-link" href="/collect">
+  <div class="stat-row">
+    <div class="stat">
+      <div class="stat-label">赔率采集</div>
+      <div class="stat-value" style="font-size:16px">
+        {% if daemon_running %}<span class="pill ok">运行中</span>
+        {% else %}<span class="pill bad">已停止</span>{% endif %}
+      </div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">最近采集</div>
+      <div class="stat-value" style="font-size:15px">{{ last_snapshot or "—" }}</div>
+    </div>
+  </div>
+</a>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const raw = document.getElementById("ov-timeline");
+if (raw) {
+  const points = JSON.parse(raw.textContent);
+  const svg = document.getElementById("ov-spark");
+  const legend = document.getElementById("ov-spark-legend");
+  const W = 600, H = 96, PAD = 6;
+  const vals = points.map(p => p.cumulative);
+  const min = Math.min(0, ...vals), max = Math.max(0, ...vals);
+  const span = (max - min) || 1;
+  const x = i => PAD + i * (W - PAD * 2) / (points.length - 1);
+  const y = v => H - PAD - ((v - min) / span) * (H - PAD * 2);
+  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i)},${y(p.cumulative)}`).join(" ");
+  const area = `${line} L${x(points.length - 1)},${y(0)} L${x(0)},${y(0)} Z`;
+  const last = vals[vals.length - 1];
+  const color = last >= 0 ? "var(--ok)" : "var(--bad)";
+  const NS = "http://www.w3.org/2000/svg";
+  const add = (tag, attrs) => {
+    const el = document.createElementNS(NS, tag);
+    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+    svg.appendChild(el);
+  };
+  add("line", { x1: PAD, y1: y(0), x2: W - PAD, y2: y(0), class: "spark-zero" });
+  add("path", { d: area, fill: color, class: "spark-area" });
+  add("path", { d: line, stroke: color, class: "spark-line" });
+  legend.innerHTML = `<span>${points[0].date}</span>` +
+    `<span>累计 ¥${last.toFixed(2)}</span>` +
+    `<span>${points[points.length - 1].date}</span>`;
+}
+</script>
+{% endblock %}
