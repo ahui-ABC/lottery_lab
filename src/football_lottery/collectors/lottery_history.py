@@ -22,10 +22,46 @@ from __future__ import annotations
 import json
 import re
 import threading
+import time
 from datetime import datetime
 
 BASE_URL = "https://kaijiang.78500.cn"
-DEFAULT_WORKERS = 6             # 对第三方站点保持克制，不加大并发
+# 对第三方站点保持克制。6 并发无间隔实测会在约 1000 次请求后触发 WAF，
+# 整个 IP 被封（连首页都 403），所以改为「小并发 + 全局令牌桶」。
+DEFAULT_WORKERS = 3
+DEFAULT_RATE = 2.5              # 全站共享的请求速率上限（次/秒）
+BLOCK_BACKOFF = (30, 60, 120)   # 撞 403 后的退避秒数，逐次加长
+
+
+class RateLimited(RuntimeError):
+    """站点返回 403 —— WAF 拦截。退避重试仍失败就中止本次运行，不硬撞。"""
+
+
+class _RateLimiter:
+    """全局令牌桶：所有 worker 共享一个速率上限。
+
+    每请求各 sleep 一次是不够的 —— N 个 worker 各自 sleep 会把总速率放大 N 倍。
+    这里用一把锁推进「下一个可发时刻」，实际速率与并发数无关。
+    """
+
+    def __init__(self, per_second: float):
+        self._interval = 1.0 / per_second if per_second > 0 else 0.0
+        self._lock = threading.Lock()
+        self._next = 0.0
+
+    def wait(self) -> None:
+        if self._interval <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            self._next = max(self._next, now)
+            delay = self._next - now
+            self._next += self._interval
+        if delay > 0:
+            time.sleep(delay)
+
+
+_limiter = _RateLimiter(DEFAULT_RATE)
 
 HEADERS = {
     "User-Agent": (
@@ -167,12 +203,27 @@ def close_client() -> None:
             _CLIENT = None
 
 
-def _get_html(path: str) -> str | None:
-    resp = get_client().get(f"{BASE_URL}{path}")
-    if resp.status_code == 404:
-        return None
-    resp.raise_for_status()
-    return resp.content.decode("gb18030", errors="replace")
+def _get_html(path: str, retries: int = len(BLOCK_BACKOFF)) -> str | None:
+    """抓一页。404 → None；403 → 退避重试，仍被拦则抛 RateLimited。
+
+    403 时**不换 UA、不换代理**：那是绕过反爬。我们只降速，降不下来就停手 ——
+    这次跑不完下次接着跑，断点续传本来就是为这种情况准备的。
+    """
+    import httpx
+
+    for attempt in range(retries + 1):
+        _limiter.wait()
+        resp = get_client().get(f"{BASE_URL}{path}")
+        if resp.status_code == 404:
+            return None
+        if resp.status_code == 403:
+            if attempt >= retries:
+                raise RateLimited(f"{path} 持续 403，站点已限流")
+            time.sleep(BLOCK_BACKOFF[attempt])
+            continue
+        resp.raise_for_status()
+        return resp.content.decode("gb18030", errors="replace")
+    raise RateLimited(f"{path} 持续 403，站点已限流")
 
 
 def fetch_draw(lottery: str, issue: str) -> dict | None:
@@ -244,37 +295,65 @@ def sync_tail(conn, lottery: str) -> int:
 
 
 def sync_range(conn, lottery: str, year_from: int, year_to: int,
-               workers: int = DEFAULT_WORKERS, on_progress=None) -> dict:
+               workers: int = DEFAULT_WORKERS, rate: float | None = None,
+               on_progress=None) -> dict:
     """枚举期号回填，已入库的跳过（断点续传）。
 
     并发只用于 HTTP，写库在调用线程串行执行 —— SQLite 写互斥，多线程写会
     `database is locked`，串行入库同时也让计数天然准确（沿用 jc_history 的做法）。
+
+    一旦撞上 403（WAF 限流）就**立刻中止本次运行**并在 stats 里标出：站点已经把
+    我们整个 IP 拦了，继续发请求只会延长封禁。下次跑本命令会自动从断点续传。
     """
+    global _limiter
+    if rate is not None:
+        _limiter = _RateLimiter(rate)
+
     have = existing_issues(conn, lottery)
     targets = [i for year in range(year_from, year_to + 1)
                for i in issue_candidates(year, lottery) if i not in have]
     stats = {"lottery": lottery, "targets": len(targets), "saved": 0,
-             "missing": 0, "failed": 0, "failed_issues": []}
+             "missing": 0, "failed": 0, "blocked": False, "failed_issues": []}
     if not targets:
         return stats
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    blocked = threading.Event()
+
+    def _one(issue: str):
+        if blocked.is_set():
+            return issue, None, "aborted"
+        try:
+            return issue, fetch_draw(lottery, issue), None
+        except RateLimited:
+            blocked.set()
+            return issue, None, "blocked"
+        except Exception:
+            return issue, None, "failed"
+
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        futures = {pool.submit(fetch_draw, lottery, i): i for i in targets}
+        futures = [pool.submit(_one, i) for i in targets]
         for done, future in enumerate(as_completed(futures), 1):
-            issue = futures[future]
-            try:
-                row = future.result()
-            except Exception:
+            issue, row, error = future.result()
+            if error == "blocked":
                 stats["failed"] += 1
                 stats["failed_issues"].append(issue)
-            else:
+                stats["blocked"] = True
+            elif error == "failed":
+                stats["failed"] += 1
+                stats["failed_issues"].append(issue)
+            elif error is None:
                 if row is None:
                     stats["missing"] += 1        # 该期不存在（停售/年份尾部），正常
                 else:
                     upsert_draw(conn, row)
                     stats["saved"] += 1
+            # error == "aborted" 不计入任何统计
             if on_progress and done % 200 == 0:
                 on_progress(done, len(targets), stats)
+            if stats["blocked"]:
+                for pending in futures:
+                    pending.cancel()
+                break
     return stats

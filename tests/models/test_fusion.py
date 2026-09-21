@@ -36,6 +36,14 @@ def test_market_only_predict_identity():
     assert out == [.5, .3, .2]
 
 
+def test_market_primary_mode_ignores_weaker_model_components():
+    f = fusion.Fusion(mode="market_primary")
+
+    out = f.predict({"market": [.5, .3, .2], "dc": [.1, .1, .8], "gbdt": [.1, .8, .1]})
+
+    np.testing.assert_allclose(out, [.5, .3, .2])
+
+
 def test_fit_predict_all_tier_sums_to_one():
     d = _synth()
     f = fusion.Fusion()

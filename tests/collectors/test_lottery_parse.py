@@ -128,6 +128,67 @@ def test_sync_range_skips_existing(monkeypatch):
     assert "2020002" in called
 
 
+class _FakeResp:
+    def __init__(self, status_code, content=b"<html></html>"):
+        self.status_code = status_code
+        self.content = content
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+def test_rate_limiter_spaces_requests():
+    """令牌桶按速率排队：N 次请求至少要耗掉 N-1 个间隔。"""
+    import time as _time
+
+    limiter = lh._RateLimiter(50.0)          # 50/s → 20ms 一个
+    start = _time.monotonic()
+    for _ in range(5):
+        limiter.wait()
+    assert _time.monotonic() - start >= 0.06
+
+
+def test_get_html_404_returns_none(monkeypatch):
+    monkeypatch.setattr(lh, "_limiter", lh._RateLimiter(0))
+    monkeypatch.setattr(lh, "get_client", lambda: type(
+        "C", (), {"get": lambda self, url: _FakeResp(404)})())
+    assert lh._get_html("/dlt/9999999/") is None
+
+
+def test_get_html_403_backs_off_then_raises(monkeypatch):
+    """403 要退避重试，重试仍被拦就抛 RateLimited —— 不换 UA、不换代理。"""
+    monkeypatch.setattr(lh, "BLOCK_BACKOFF", (0, 0, 0))
+    monkeypatch.setattr(lh, "_limiter", lh._RateLimiter(0))
+    calls = []
+
+    def _get(self, url):
+        calls.append(url)
+        return _FakeResp(403)
+
+    monkeypatch.setattr(lh, "get_client",
+                        lambda: type("C", (), {"get": _get})())
+    with pytest.raises(lh.RateLimited):
+        lh._get_html("/dlt/2020001/")
+    assert len(calls) == 4          # 首次 + 3 次退避重试
+
+
+def test_sync_range_aborts_immediately_when_blocked(monkeypatch):
+    """撞上 403 必须中止整轮，而不是把剩下几千个请求挨个撞一遍。"""
+    conn = _conn()
+    calls = []
+
+    def fake_fetch(lottery, issue):
+        calls.append(issue)
+        raise lh.RateLimited("blocked")
+
+    monkeypatch.setattr(lh, "fetch_draw", fake_fetch)
+    stats = lh.sync_range(conn, "3d", 2020, 2020, workers=1)
+    assert stats["blocked"] is True
+    assert len(calls) <= 3          # 已中止，剩余目标不再发请求
+    assert stats["saved"] == 0
+
+
 def test_sync_range_counts_missing_and_failed(monkeypatch):
     conn = _conn()
 
