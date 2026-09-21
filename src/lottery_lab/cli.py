@@ -279,6 +279,41 @@ def cmd_daily_lottery(args, cfg: dict) -> int:
     return 0
 
 
+# 胜负彩「该开奖了却没记录」的回看窗口（天）。超出这个窗口还没开奖记录的期次
+# 视为数据源缺档，不再反复重试 —— 否则每一轮都白跑一次全量采集。
+FOOTBALL_LOOKBACK_DAYS = 7
+
+
+def _maybe_run_daily_football(conn, cfg: dict) -> None:
+    """胜负彩开奖采集与对奖：有「已过开奖日却还没有开奖记录」的期次时才跑。
+
+    判据是**数据状态**而不是钟点 —— 上游什么时候出结果我们不知道，
+    但「过了开奖日却没有记录」是明确信号，抓到一次就把整段补齐。
+
+    这个环节以前只存在于手动按钮里，守护进程完全没管，结果就是开奖出来了
+    也没人去取，页面上一直显示「待开奖」。
+    """
+    from datetime import date, timedelta
+    from types import SimpleNamespace
+
+    today = date.today()
+    since = (today - timedelta(days=FOOTBALL_LOOKBACK_DAYS)).isoformat()
+    pending = conn.execute(
+        """SELECT COUNT(*) FROM periods p
+           WHERE p.status='historical' AND p.draw_date >= ? AND p.draw_date <= ?
+             AND NOT EXISTS (SELECT 1 FROM draw_results d WHERE d.period_id = p.id)""",
+        (since, today.isoformat())).fetchone()[0]
+    if not pending:
+        return
+
+    print(f"[daily-football] 有 {pending} 期已过开奖日但无开奖记录，开始采集…", flush=True)
+    try:
+        cmd_collect_draws(SimpleNamespace(file=None, years=4), cfg)
+        cmd_check_draw(SimpleNamespace(period=None), cfg)
+    except Exception as exc:                       # noqa: BLE001 - 不能让采集挂掉
+        print(f"[daily-football] 失败（下一轮重试）：{exc}", file=sys.stderr, flush=True)
+
+
 def _maybe_run_daily_lottery(conn, cfg: dict) -> None:
     """watch 进程里定期跑 daily-lottery。
 
@@ -345,6 +380,7 @@ def cmd_collect_odds(args, cfg: dict) -> int:
             except sporttery.CollectorError as exc:
                 # watch 模式不因单次失败退出
                 print(f"采集失败（下轮重试）：{exc}", file=sys.stderr, flush=True)
+            _maybe_run_daily_football(conn, cfg)
             _maybe_run_daily_jc(conn, cfg)
             _maybe_run_daily_lottery(conn, cfg)
             _time.sleep(interval)

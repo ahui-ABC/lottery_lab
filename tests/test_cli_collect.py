@@ -188,3 +188,98 @@ def test_collect_draws_writes_history(monkeypatch, conn, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["periods_saved"] == 30
     assert out["skipped"] == 0
+
+
+# ---- 胜负彩开奖自动补齐 ---------------------------------------------------
+
+def _football_env(tmp_path, monkeypatch, periods):
+    """periods: [(period_no, draw_date, 是否已有开奖记录)]"""
+    from lottery_lab.db import store
+    from datetime import date, timedelta
+
+    cfg = {"db_path": str(tmp_path / "t.db")}
+    conn = store.connect(cfg["db_path"])
+    store.init_db(conn)
+    for pn, draw_date, has_draw in periods:
+        conn.execute("INSERT INTO periods(period_no, status, draw_date, sale_end) "
+                     "VALUES(?,?,?,?)", (pn, "historical", draw_date, draw_date))
+        pid = conn.execute("SELECT id FROM periods WHERE period_no=?", (pn,)).fetchone()["id"]
+        if has_draw:
+            conn.execute("INSERT INTO draw_results(period_id, results_json, prizes_json) "
+                         "VALUES(?,?,?)", (pid, "3,3,3,3,3,3,3,3,3,3,3,3,3,3", "{}"))
+    conn.commit()
+    conn.close()
+    return cfg
+
+
+def test_maybe_run_daily_football_fires_when_a_period_is_missing_its_draw(
+        tmp_path, monkeypatch, capsys):
+    """核心回归：开奖日已过却没有开奖记录时，守护进程必须去补。
+
+    这就是「胜负彩开奖一直不出来」的根因 —— 这一环以前只存在于手动按钮里。
+    """
+    from datetime import date, timedelta
+    from lottery_lab import cli
+    from lottery_lab.db import store
+
+    today = date.today()
+    yesterday = (today - timedelta(days=1)).isoformat()
+    cfg = _football_env(tmp_path, monkeypatch,
+                        [("26131", yesterday, False), ("26130", yesterday, True)])
+
+    called = []
+    monkeypatch.setattr(cli, "cmd_collect_draws",
+                        lambda args, cfg: called.append("draws") or 0)
+    monkeypatch.setattr(cli, "cmd_check_draw",
+                        lambda args, cfg: called.append("check") or 0)
+
+    conn = store.connect(cfg["db_path"])
+    cli._maybe_run_daily_football(conn, cfg)
+    conn.close()
+
+    assert called == ["draws", "check"]
+    assert "已过开奖日" in capsys.readouterr().out
+
+
+def test_maybe_run_daily_football_stays_quiet_once_everything_is_in(
+        tmp_path, monkeypatch, capsys):
+    """全部期次都有开奖记录时不该白跑一趟（采集要发网络请求）。"""
+    from datetime import date, timedelta
+    from lottery_lab import cli
+    from lottery_lab.db import store
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    cfg = _football_env(tmp_path, monkeypatch, [("26131", yesterday, True)])
+
+    called = []
+    monkeypatch.setattr(cli, "cmd_collect_draws",
+                        lambda args, cfg: called.append("draws") or 0)
+
+    conn = store.connect(cfg["db_path"])
+    cli._maybe_run_daily_football(conn, cfg)
+    conn.close()
+
+    assert called == []
+    assert capsys.readouterr().out == ""
+
+
+def test_maybe_run_daily_football_ignores_ancient_gaps(
+        tmp_path, monkeypatch, capsys):
+    """超出回看窗口的历史缺口不再重试 —— 那多半是数据源缺档，
+    否则每一轮（10 分钟）都要白跑一次全量采集。"""
+    from datetime import date, timedelta
+    from lottery_lab import cli
+    from lottery_lab.db import store
+
+    old = (date.today() - timedelta(days=cli.FOOTBALL_LOOKBACK_DAYS + 5)).isoformat()
+    cfg = _football_env(tmp_path, monkeypatch, [("20001", old, False)])
+
+    called = []
+    monkeypatch.setattr(cli, "cmd_collect_draws",
+                        lambda args, cfg: called.append("draws") or 0)
+
+    conn = store.connect(cfg["db_path"])
+    cli._maybe_run_daily_football(conn, cfg)
+    conn.close()
+
+    assert called == []
