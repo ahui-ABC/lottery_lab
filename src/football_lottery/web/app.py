@@ -35,7 +35,7 @@ from football_lottery.optimizer import solver
 from football_lottery.optimizer import expand as exp
 
 
-app = FastAPI(title="足彩预测工具", docs_url="/docs")
+app = FastAPI(title="足彩与数字彩分析", docs_url="/docs")
 
 # 胜负彩 3/1/0 是主队视角：3=主胜、1=平、0=主负（客胜）
 OUTCOME_LABELS = {"3": "胜", "1": "平", "0": "负"}
@@ -98,7 +98,7 @@ def root(request: Request):
     同一页、看着像重复。改为真正的概览页。
     """
     from football_lottery import daemon_ctl
-    from football_lottery.models import jc_parlay
+    from football_lottery.models import jc_parlay, lottery_track
 
     conn = _get_conn()
     period = _period_with_matches(conn)
@@ -125,6 +125,7 @@ def root(request: Request):
         "jc": jc,
         "summary": jc_parlay.summary(conn),
         "timeline": jc_parlay.timeline(conn, limit=60),
+        "lottery": lottery_track.overview(conn),
         "daemon_running": running,
         "last_snapshot": last,
     })

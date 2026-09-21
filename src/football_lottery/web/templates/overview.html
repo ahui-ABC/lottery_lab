@@ -67,6 +67,56 @@
 <p class="hint">还没有已开奖的串关方案；跑满 2 期后这里会显示盈亏曲线。</p>
 {% endif %}
 
+<h3>数字彩 <a class="hint" href="/lottery">看详情 →</a></h3>
+<div class="table-scroll">
+<table>
+  <thead><tr>
+    <th>彩种</th><th>最新期</th><th>开奖号码</th><th>已统计</th><th>待开奖</th>
+    <th>五条策略累计盈亏</th>
+  </tr></thead>
+  <tbody>
+  {% for lot in lottery %}
+    <tr>
+      <td><a href="/lottery/{{ lot.lottery }}">{{ lot.name }}</a></td>
+      {% if lot.latest %}
+        <td>{{ lot.latest.issue }}</td>
+        <td class="num">
+          {% if lot.latest.numbers.front %}
+            {{ lot.latest.numbers.front | join(" ") }}
+            <span class="hint">+</span>
+            {{ lot.latest.numbers.back | join(" ") }}
+          {% else %}
+            {{ lot.latest.numbers.digits | join(" ") }}
+          {% endif %}
+        </td>
+        <td>{{ lot.scored_issues }}</td>
+        <td>{{ lot.pending }}</td>
+        <td>
+          {% if lot.strategies %}
+            <div class="strategy-mini">
+              {% for s in lot.strategies %}
+                <span>{{ s.label }}
+                  <b class="{{ 'pos' if s.profit >= 0 else 'neg' }}">{{ s.profit | money }}</b>
+                </span>
+              {% endfor %}
+            </div>
+          {% else %}
+            <span class="hint">还没有已开奖的推荐</span>
+          {% endif %}
+        </td>
+      {% else %}
+        <td colspan="5" class="hint">库内暂无数据</td>
+      {% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="hint">
+  每期每条策略 5 注 × 2 元。摇奖机是独立同分布的，五条策略长期都赢不了随机 ——
+  这里显示的是<strong>真实发生过的推荐</strong>的实际盈亏，不是回测。
+</p>
+
 <h3>采集状态</h3>
 <a class="tile-link" href="/collect">
   <div class="stat-row">

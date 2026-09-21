@@ -909,7 +909,8 @@ def cmd_serve(args, cfg: dict) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="football_lottery", description="足彩预测工具")
+    p = argparse.ArgumentParser(prog="football_lottery",
+                                description="足彩与数字彩分析工具")
     sub = p.add_subparsers(dest="cmd")
 
     # collect-history

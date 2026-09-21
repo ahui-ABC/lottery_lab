@@ -132,10 +132,15 @@ def test_sidebar_holds_the_menu(client):
 
 
 def test_sidebar_lists_both_sections(client):
+    """一级分组是「足彩」「数字彩」。
+
+    这里刻意不叫「竞彩」——那一层原先也叫「竞彩」，和它里面名为「竞彩」的子组
+    撞名，看的人分不清哪层是哪层。
+    """
     body = client.get("/lottery").text
-    assert re.search(r'<div class="nav-section">竞彩</div>', body)
+    assert re.search(r'<div class="nav-section">足彩</div>', body)
     assert re.search(r'<div class="nav-section">数字彩</div>', body)
-    # 竞彩那一大块里再分「胜负彩」「竞彩」两个小标题
+    # 足彩那一大块里再分「胜负彩」「竞彩」两个小标题
     assert re.search(r'<div class="nav-group">胜负彩</div>', body)
     assert re.search(r'<div class="nav-group">竞彩</div>', body)
 
@@ -153,9 +158,31 @@ def test_active_link_follows_current_page(client, path):
 
 
 def test_overview_is_reachable_from_the_brand(client):
+    """侧栏顶部叫「概览」，指回首页 —— 不叫站名，因为站名涵盖两块业务，
+    单独写成「足彩」会显得数字彩不在这站里。"""
     body = client.get("/lottery").text
-    assert re.search(r'<a class="brand" href="/">足彩分析</a>', body)
+    assert re.search(r'<a class="brand" href="/">概览</a>', body)
     assert client.get("/").status_code == 200
+
+
+def test_overview_covers_both_football_and_lottery(client):
+    """概览页要同时给出足彩与数字彩的摘要 —— 只放一边就不叫概览了。"""
+    body = client.get("/").text
+    assert "当期胜负彩" in body
+    assert "竞彩串关" in body
+    assert "数字彩" in body
+    for name in ("大乐透", "双色球", "排列三", "排列五", "福彩3D"):
+        assert name in body
+    # 五类彩种各一行，且能点进各自详情
+    for code in CODES:
+        assert f'href="/lottery/{code}"' in body
+
+
+def test_overview_shows_lottery_profit_per_strategy(client):
+    """p3 有一条已对奖的 hot 记录，概览上要能看到它的盈亏。"""
+    body = client.get("/").text
+    assert "五条策略累计盈亏" in body
+    assert "¥1038" in body
 
 
 def test_top_level_overview_and_collect_still_work(client):

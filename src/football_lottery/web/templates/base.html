@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<title>{% block title %}足彩预测工具{% endblock %}</title>
+<title>{% block title %}足彩与数字彩分析{% endblock %}</title>
 <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
@@ -10,9 +10,13 @@
 {% set path = request.url.path if request else '' %}
 <div class="shell">
   <aside class="sidebar">
-    <a class="brand{% if path == '/' %} active{% endif %}" href="/">足彩分析</a>
+    {# 这里指回首页（概览），所以叫「概览」而不是站名 —— 站名已经涵盖两块业务，
+       单独叫「足彩」会显得数字彩不在这站里 #}
+    <a class="brand{% if path == '/' %} active{% endif %}" href="/">概览</a>
 
-    <div class="nav-section">竞彩</div>
+    {# 一级分组叫「足彩」（下含 胜负彩 / 竞彩）。原先这层也叫「竞彩」，
+       和里面的子组同名，看的人分不清哪层是哪层 #}
+    <div class="nav-section">足彩</div>
     <div class="nav-group">胜负彩</div>
     <a class="nav-link{% if path == '/predict'  %} active{% endif %}" href="/predict">本期预测</a>
     <a class="nav-link{% if path == '/plan'     %} active{% endif %}" href="/plan">推荐方案</a>
