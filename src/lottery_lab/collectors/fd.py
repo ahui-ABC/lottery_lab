@@ -109,7 +109,7 @@ def _team_id(conn: sqlite3.Connection, name_en: str) -> int:
 
 
 def _ensure_league(conn: sqlite3.Connection, div: str) -> None:
-    from football_lottery.db import store
+    from lottery_lab.db import store
     store.upsert(
         conn,
         "leagues",
@@ -137,7 +137,7 @@ def collect_from_csv(
     _ensure_league(conn, div)
     season_label = _season_label(season)
     n = 0
-    from football_lottery.db import store
+    from lottery_lab.db import store
     for r in rows:
         h_id = _team_id(conn, r["home"])
         a_id = _team_id(conn, r["away"])

@@ -10,7 +10,7 @@ from math import prod
 
 import numpy as np
 
-from football_lottery.optimizer import probabilities as P
+from lottery_lab.optimizer import probabilities as P
 
 OUTCOMES = ("3", "1", "0")
 IDX = {"3": 0, "1": 1, "0": 2}

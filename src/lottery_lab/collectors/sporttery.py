@@ -18,7 +18,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
-from football_lottery.db import store
+from lottery_lab.db import store
 
 
 # ---- live API（官方 webapi，无需认证） -------------------------------------------

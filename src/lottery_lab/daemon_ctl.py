@@ -112,7 +112,7 @@ def start(interval: int = DEFAULT_INTERVAL) -> dict:
                 "message": f"采集已在运行（PID {pid}）"}
 
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    cmd = [_pythonw(), "-m", "football_lottery.cli", "collect-odds",
+    cmd = [_pythonw(), "-m", "lottery_lab.cli", "collect-odds",
            "--watch", "--interval", str(interval), "--log", str(LOG_PATH)]
 
     creationflags = 0

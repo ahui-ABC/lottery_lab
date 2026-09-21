@@ -3,9 +3,9 @@ import sqlite3
 
 import pytest
 
-from football_lottery.db import store
-from football_lottery.models import lottery_track as lt
-from football_lottery.models.lottery_predict import BET_PRICE
+from lottery_lab.db import store
+from lottery_lab.models import lottery_track as lt
+from lottery_lab.models.lottery_predict import BET_PRICE
 
 
 def _conn():

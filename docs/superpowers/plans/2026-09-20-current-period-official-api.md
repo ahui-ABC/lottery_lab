@@ -28,11 +28,11 @@
 
 | 文件 | 职责 | 动作 |
 |---|---|---|
-| `src/football_lottery/db/store.py` | 加幂等轻量迁移（补 `league_cn` 列） | 修改 |
-| `src/football_lottery/collectors/sporttery.py` | 官方接口抓取 / 解析 / 入库三层 | 修改（追加） |
-| `src/football_lottery/cli.py` | `collect-period` / `collect-draws` 接通；`data_health` 补当期信息 | 修改 |
-| `src/football_lottery/web/app.py` | 期次选取逻辑修复 + 透传期次状态与 `league_cn` | 修改 |
-| `src/football_lottery/web/templates/predict.html` | 展示期次状态/截止时间；抑制假 33.3% | 修改 |
+| `src/lottery_lab/db/store.py` | 加幂等轻量迁移（补 `league_cn` 列） | 修改 |
+| `src/lottery_lab/collectors/sporttery.py` | 官方接口抓取 / 解析 / 入库三层 | 修改（追加） |
+| `src/lottery_lab/cli.py` | `collect-period` / `collect-draws` 接通；`data_health` 补当期信息 | 修改 |
+| `src/lottery_lab/web/app.py` | 期次选取逻辑修复 + 透传期次状态与 `league_cn` | 修改 |
+| `src/lottery_lab/web/templates/predict.html` | 展示期次状态/截止时间；抑制假 33.3% | 修改 |
 | `config.yaml` | `seasons` 增加 `2627` | 修改 |
 | `tests/fixtures/sporttery_*.json` | 离线测试用的真实响应 | 新建 |
 | `tests/collectors/test_sporttery_official.py` | 解析 / 入库 / 异常测试 | 新建 |
@@ -55,7 +55,7 @@
 - [ ] **Step 1: 复制已抓取的真实响应到 fixtures**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 mkdir -p tests/fixtures
 cp .tmp/probe/sale_90.json        tests/fixtures/sporttery_saleinfo_90.json
 cp .tmp/probe/bydraw_26131.json   tests/fixtures/sporttery_bydraw_26131.json
@@ -65,7 +65,7 @@ cp .tmp/probe/hist_90_30.json     tests/fixtures/sporttery_history_90.json
 若 `.tmp/probe/` 已被清理，用以下命令重新抓取：
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -c "
 import httpx, json, pathlib
 H={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36','Referer':'https://www.sporttery.cn/ctzc/kjgg/','Origin':'https://www.sporttery.cn','Accept':'application/json, text/plain, */*'}
@@ -84,7 +84,7 @@ for name,url in jobs:
 - [ ] **Step 2: 校验 fixture 内容符合预期**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -c "
 import json
 s=json.load(open('tests/fixtures/sporttery_saleinfo_90.json',encoding='utf-8'))
@@ -111,7 +111,7 @@ history[0] period = 26129 result = 3 3 3 1 3 3 0 3 0 3
 - [ ] **Step 3: 提交 fixtures**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 git add tests/fixtures/sporttery_saleinfo_90.json tests/fixtures/sporttery_bydraw_26131.json tests/fixtures/sporttery_history_90.json
 git commit -m "test(fixtures): 官方 webapi 真实响应样本（当期/按期号/历史）"
 ```
@@ -121,7 +121,7 @@ git commit -m "test(fixtures): 官方 webapi 真实响应样本（当期/按期�
 ## Task 1: `league_cn` 列的幂等迁移
 
 **Files:**
-- Modify: `src/football_lottery/db/store.py`
+- Modify: `src/lottery_lab/db/store.py`
 - Test: `tests/db/test_store_migration.py`（新建）
 
 `schema.sql` 用 `CREATE TABLE IF NOT EXISTS`，对已存在的表不会加列。需要一个幂等迁移函数，否则老库（当前 `data/football.db`）跑起来会报 "no such column: league_cn"。
@@ -131,7 +131,7 @@ git commit -m "test(fixtures): 官方 webapi 真实响应样本（当期/按期�
 Create `tests/db/test_store_migration.py`：
 
 ```python
-from football_lottery.db import store
+from lottery_lab.db import store
 
 
 def _columns(conn, table):
@@ -197,14 +197,14 @@ def test_ensure_columns_preserves_existing_rows():
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/db/test_store_migration.py -v
 ```
-Expected: FAIL —— `AttributeError: module 'football_lottery.db.store' has no attribute 'ensure_columns'`
+Expected: FAIL —— `AttributeError: module 'lottery_lab.db.store' has no attribute 'ensure_columns'`
 
 - [ ] **Step 3: 实现 `ensure_columns`**
 
-在 `src/football_lottery/db/store.py` 末尾追加（保留现有 `connect` / `init_db` / `upsert` / `fetchone` / `fetchall` 不动）：
+在 `src/lottery_lab/db/store.py` 末尾追加（保留现有 `connect` / `init_db` / `upsert` / `fetchone` / `fetchall` 不动）：
 
 ```python
 # schema.sql 用 CREATE TABLE IF NOT EXISTS，无法给已存在的表补列；
@@ -226,7 +226,7 @@ def ensure_columns(conn: sqlite3.Connection) -> None:
 
 同时把新列补进 `schema.sql` 的 `period_matches` 定义，让全新库一次建好（老库仍靠 `ensure_columns`）：
 
-`src/football_lottery/db/schema.sql`，把
+`src/lottery_lab/db/schema.sql`，把
 
 ```sql
 CREATE TABLE IF NOT EXISTS period_matches (
@@ -271,7 +271,7 @@ def init_db(conn: sqlite3.Connection) -> None:
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/db/test_store_migration.py -v
 ```
 Expected: 2 passed
@@ -279,10 +279,10 @@ Expected: 2 passed
 - [ ] **Step 5: 对现有真实库跑一次迁移并验证**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -c "
 import sys; sys.path.insert(0,'src')
-from football_lottery.db import store
+from lottery_lab.db import store
 conn = store.connect('data/football.db')
 store.init_db(conn)
 cols = [r['name'] for r in conn.execute('PRAGMA table_info(period_matches)')]
@@ -296,8 +296,8 @@ Expected: 打印的列里含 `league_cn`，且 `OK`。
 - [ ] **Step 6: 提交**
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/db/store.py src/football_lottery/db/schema.sql tests/db/test_store_migration.py
+cd D:/project/lottery-lab
+git add src/lottery_lab/db/store.py src/lottery_lab/db/schema.sql tests/db/test_store_migration.py
 git commit -m "feat(db): period_matches 增加 league_cn 列与幂等迁移"
 ```
 
@@ -306,7 +306,7 @@ git commit -m "feat(db): period_matches 增加 league_cn 列与幂等迁移"
 ## Task 2: 抓取层 —— `CollectorError` 与 `fetch_*`
 
 **Files:**
-- Modify: `src/football_lottery/collectors/sporttery.py`
+- Modify: `src/lottery_lab/collectors/sporttery.py`
 - Test: `tests/collectors/test_sporttery_official.py`（新建）
 
 先做抓取层的**错误处理**，因为它是其余部分的基础。注意：这里只测试 `CollectorError` 的构造与 `_get_json` 的错误分支（用 monkeypatch 打桩 httpx），**不发真实网络请求**。
@@ -321,7 +321,7 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery.collectors import sporttery
+from lottery_lab.collectors import sporttery
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -411,14 +411,14 @@ def test_fetch_current_period_returns_none_when_no_onsale(monkeypatch):
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/collectors/test_sporttery_official.py -v
 ```
-Expected: FAIL —— `AttributeError: module 'football_lottery.collectors.sporttery' has no attribute 'CollectorError'`
+Expected: FAIL —— `AttributeError: module 'lottery_lab.collectors.sporttery' has no attribute 'CollectorError'`
 
 - [ ] **Step 3: 实现抓取层**
 
-在 `src/football_lottery/collectors/sporttery.py` 中，把现有的 `LIVE_URLS` 常量与 `fetch_live` 函数**整体替换**为下面内容（原 `import_fixtures_csv` 保留不动）。
+在 `src/lottery_lab/collectors/sporttery.py` 中，把现有的 `LIVE_URLS` 常量与 `fetch_live` 函数**整体替换**为下面内容（原 `import_fixtures_csv` 保留不动）。
 
 替换范围是文件开头的 `# ---- live API（best-effort） ----` 到 `fetch_live` 函数结束。
 
@@ -533,7 +533,7 @@ def fetch_history_page(page_no: int, page_size: int = 100) -> dict:
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/collectors/test_sporttery_official.py -v
 ```
 Expected: 7 passed
@@ -541,10 +541,10 @@ Expected: 7 passed
 - [ ] **Step 5: 真实验证一次抓取（联网）**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -c "
 import sys; sys.path.insert(0,'src')
-from football_lottery.collectors import sporttery
+from lottery_lab.collectors import sporttery
 cur = sporttery.fetch_current_period()
 print('current:', cur)
 detail = sporttery.fetch_period_detail(cur['period_no']) if cur else {}
@@ -556,8 +556,8 @@ Expected: 打印当期期号与 14。若当前无在售期次（`cur` 为 None�
 - [ ] **Step 6: 提交**
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/collectors/sporttery.py tests/collectors/test_sporttery_official.py
+cd D:/project/lottery-lab
+git add src/lottery_lab/collectors/sporttery.py tests/collectors/test_sporttery_official.py
 git commit -m "feat(collectors): 官方 webapi 抓取层（真实接口 + CollectorError）"
 ```
 
@@ -566,7 +566,7 @@ git commit -m "feat(collectors): 官方 webapi 抓取层（真实接口 + Collec
 ## Task 3: 解析层 —— `parse_period` 与 `parse_draw_results`
 
 **Files:**
-- Modify: `src/football_lottery/collectors/sporttery.py`
+- Modify: `src/lottery_lab/collectors/sporttery.py`
 - Test: `tests/collectors/test_sporttery_official.py`（追加）
 
 解析层把官方响应转成入库结构，是纯函数，最容易测。
@@ -643,14 +643,14 @@ def test_parse_draw_results_returns_none_when_undrawn():
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/collectors/test_sporttery_official.py -v -k parse
 ```
 Expected: FAIL —— `AttributeError: ... has no attribute 'parse_period'`
 
 - [ ] **Step 3: 实现解析层**
 
-在 `src/football_lottery/collectors/sporttery.py` 中，紧跟 `fetch_history_page` 之后追加：
+在 `src/lottery_lab/collectors/sporttery.py` 中，紧跟 `fetch_history_page` 之后追加：
 
 ```python
 # ---- 解析层（纯函数） ------------------------------------------------------------
@@ -745,7 +745,7 @@ def parse_draw_results(detail: dict) -> dict | None:
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/collectors/test_sporttery_official.py -v
 ```
 Expected: 12 passed
@@ -753,8 +753,8 @@ Expected: 12 passed
 - [ ] **Step 5: 提交**
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/collectors/sporttery.py tests/collectors/test_sporttery_official.py
+cd D:/project/lottery-lab
+git add src/lottery_lab/collectors/sporttery.py tests/collectors/test_sporttery_official.py
 git commit -m "feat(collectors): 官方响应解析层（全名队名/14 场校验/奖金转换）"
 ```
 
@@ -763,7 +763,7 @@ git commit -m "feat(collectors): 官方响应解析层（全名队名/14 场校�
 ## Task 4: 入库层 —— `upsert_period` 与 `collect_history`
 
 **Files:**
-- Modify: `src/football_lottery/collectors/sporttery.py`
+- Modify: `src/lottery_lab/collectors/sporttery.py`
 - Test: `tests/collectors/test_sporttery_official.py`（追加）
 
 入库层有两个必须保证的性质：**幂等**（重复跑不产生重复行）和**不破坏已有映射**（重跑 `collect-period` 不能把 `match_id` / `odds_json` 清空）。
@@ -774,7 +774,7 @@ git commit -m "feat(collectors): 官方响应解析层（全名队名/14 场校�
 
 ```python
 def _memory_db():
-    from football_lottery.db import store
+    from lottery_lab.db import store
 
     conn = store.connect(":memory:")
     store.init_db(conn)
@@ -908,14 +908,14 @@ def test_collect_history_counts_short_match_lists_as_skipped(monkeypatch):
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/collectors/test_sporttery_official.py -v -k "upsert or history"
 ```
 Expected: FAIL —— `AttributeError: ... has no attribute 'upsert_period'`
 
 - [ ] **Step 3: 实现入库层**
 
-先在 `src/football_lottery/collectors/sporttery.py` 顶部 import 区补 `import time`（现有已有 `csv / io / json / sqlite3 / datetime / pathlib / typing`，加 `import time`）。
+先在 `src/lottery_lab/collectors/sporttery.py` 顶部 import 区补 `import time`（现有已有 `csv / io / json / sqlite3 / datetime / pathlib / typing`，加 `import time`）。
 
 然后追加：
 
@@ -1034,7 +1034,7 @@ def collect_history(
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/collectors/test_sporttery_official.py -v
 ```
 Expected: 18 passed
@@ -1042,8 +1042,8 @@ Expected: 18 passed
 - [ ] **Step 5: 提交**
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/collectors/sporttery.py tests/collectors/test_sporttery_official.py
+cd D:/project/lottery-lab
+git add src/lottery_lab/collectors/sporttery.py tests/collectors/test_sporttery_official.py
 git commit -m "feat(collectors): 入库层（幂等 + 保留既有映射 + 历史翻页）"
 ```
 
@@ -1052,8 +1052,8 @@ git commit -m "feat(collectors): 入库层（幂等 + 保留既有映射 + 历�
 ## Task 5: CLI 接通 `collect-period` / `collect-draws`
 
 **Files:**
-- Modify: `src/football_lottery/cli.py:92-115`（`cmd_collect_period` / `cmd_collect_draws`）
-- Modify: `src/football_lottery/cli.py`（argparse 的 `collect-draws` 增加 `--years`）
+- Modify: `src/lottery_lab/cli.py:92-115`（`cmd_collect_period` / `cmd_collect_draws`）
+- Modify: `src/lottery_lab/cli.py`（argparse 的 `collect-draws` 增加 `--years`）
 - Test: `tests/test_cli_collect.py`（新建）
 
 - [ ] **Step 1: 写失败的测试**
@@ -1066,9 +1066,9 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery import cli
-from football_lottery.collectors import sporttery
-from football_lottery.db import store
+from lottery_lab import cli
+from lottery_lab.collectors import sporttery
+from lottery_lab.db import store
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -1161,21 +1161,21 @@ def test_collect_draws_writes_history(monkeypatch, conn, capsys):
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/test_cli_collect.py -v
 ```
 Expected: FAIL —— `collect-period` 返回 2 或断言失败（当前实现只探测、不入库）
 
 - [ ] **Step 3: 实现 CLI**
 
-把 `src/football_lottery/cli.py` 中的 `cmd_collect_period` 与 `cmd_collect_draws` 整体替换为：
+把 `src/lottery_lab/cli.py` 中的 `cmd_collect_period` 与 `cmd_collect_draws` 整体替换为：
 
 ```python
 def cmd_collect_period(args, cfg: dict) -> int:
     """采集当期对阵：官方接口取期号 + 14 场对阵并入库。"""
     if args.file:
         return cmd_import_fixtures(args, cfg)
-    from football_lottery.collectors import sporttery
+    from lottery_lab.collectors import sporttery
     conn = _connect(cfg)
     try:
         current = sporttery.fetch_current_period()
@@ -1203,7 +1203,7 @@ def cmd_collect_draws(args, cfg: dict) -> int:
     """采集近 N 年历史开奖（对阵 + 赛果 + 奖金）并入库。"""
     if args.file:
         return cmd_import_fixtures(args, cfg)
-    from football_lottery.collectors import sporttery
+    from lottery_lab.collectors import sporttery
     conn = _connect(cfg)
     years = getattr(args, "years", None) or 4
     try:
@@ -1233,7 +1233,7 @@ def cmd_collect_draws(args, cfg: dict) -> int:
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/test_cli_collect.py -v
 ```
 Expected: 4 passed
@@ -1241,16 +1241,16 @@ Expected: 4 passed
 - [ ] **Step 5: 真实跑一次（联网）**
 
 ```bash
-cd D:/project/football-lottery
-.venv/Scripts/python.exe -m football_lottery.cli collect-period
+cd D:/project/lottery-lab
+.venv/Scripts/python.exe -m lottery_lab.cli collect-period
 ```
 Expected: 输出 JSON，含 `"period_no": "26131"`（或当前在售期号）与 `"fixtures": 14`。
 
 - [ ] **Step 6: 提交**
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/cli.py tests/test_cli_collect.py
+cd D:/project/lottery-lab
+git add src/lottery_lab/cli.py tests/test_cli_collect.py
 git commit -m "feat(cli): collect-period/collect-draws 接通官方接口（含 --years）"
 ```
 
@@ -1259,7 +1259,7 @@ git commit -m "feat(cli): collect-period/collect-draws 接通官方接口（含 
 ## Task 6: `data_health` 输出当期信息
 
 **Files:**
-- Modify: `src/football_lottery/cli.py`（`data_health` 函数）
+- Modify: `src/lottery_lab/cli.py`（`data_health` 函数）
 - Test: `tests/test_cli_health.py`（追加）
 
 验收标准 #1 依赖此项。
@@ -1270,8 +1270,8 @@ git commit -m "feat(cli): collect-period/collect-draws 接通官方接口（含 
 
 ```python
 def test_data_health_reports_current_period_and_missing_odds():
-    from football_lottery.cli import data_health
-    from football_lottery.db import store
+    from lottery_lab.cli import data_health
+    from lottery_lab.db import store
 
     conn = store.connect(":memory:")
     store.init_db(conn)
@@ -1294,8 +1294,8 @@ def test_data_health_reports_current_period_and_missing_odds():
 
 
 def test_data_health_current_period_none_when_absent():
-    from football_lottery.cli import data_health
-    from football_lottery.db import store
+    from lottery_lab.cli import data_health
+    from lottery_lab.db import store
 
     conn = store.connect(":memory:")
     store.init_db(conn)
@@ -1310,14 +1310,14 @@ def test_data_health_current_period_none_when_absent():
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/test_cli_health.py -v -k current_period
 ```
 Expected: FAIL —— `KeyError: 'current_period'`
 
 - [ ] **Step 3: 实现**
 
-在 `src/football_lottery/cli.py` 的 `data_health` 函数中操作。该函数末尾是 `out = { ... }` 字面量（最后两个键是 `"last_match_date": last_match`）紧跟 `return out`。
+在 `src/lottery_lab/cli.py` 的 `data_health` 函数中操作。该函数末尾是 `out = { ... }` 字面量（最后两个键是 `"last_match_date": last_match`）紧跟 `return out`。
 
 在 `out = {` 这一行**之前**插入：
 
@@ -1353,7 +1353,7 @@ Expected: FAIL —— `KeyError: 'current_period'`
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/test_cli_health.py -v
 ```
 Expected: 全部通过
@@ -1361,8 +1361,8 @@ Expected: 全部通过
 - [ ] **Step 5: 提交**
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/cli.py tests/test_cli_health.py
+cd D:/project/lottery-lab
+git add src/lottery_lab/cli.py tests/test_cli_health.py
 git commit -m "feat(cli): data-health 输出当期期号与缺赔率场次数"
 ```
 
@@ -1371,7 +1371,7 @@ git commit -m "feat(cli): data-health 输出当期期号与缺赔率场次数"
 ## Task 7: Web 层期次选取修复
 
 **Files:**
-- Modify: `src/football_lottery/web/app.py:95-159`
+- Modify: `src/lottery_lab/web/app.py:95-159`
 - Test: `tests/test_web_period_selection.py`（新建）
 
 这是 26080 bug 的**直接根因**所在，也是本轮的核心修复。
@@ -1385,8 +1385,8 @@ import json
 
 import pytest
 
-from football_lottery.db import store
-from football_lottery.web import app as web_app
+from lottery_lab.db import store
+from lottery_lab.web import app as web_app
 
 
 @pytest.fixture
@@ -1489,14 +1489,14 @@ def test_predict_suppresses_fake_uniform_distribution(conn, monkeypatch):
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/test_web_period_selection.py -v
 ```
 Expected: FAIL —— `KeyError: 'is_current'`
 
 - [ ] **Step 3: 实现期次选取**
 
-在 `src/football_lottery/web/app.py` 中，用下面的 `_is_on_sale` / `_pick_period` / `_period_with_matches` **整体替换**现有的 `_period_with_matches`（第 95-146 行）。
+在 `src/lottery_lab/web/app.py` 中，用下面的 `_is_on_sale` / `_pick_period` / `_period_with_matches` **整体替换**现有的 `_period_with_matches`（第 95-146 行）。
 
 ```python
 def _is_on_sale(sale_end: str | None, now: datetime | None = None) -> bool:
@@ -1594,11 +1594,11 @@ def _period_with_matches(conn) -> dict | None:
     }
 ```
 
-在 `src/football_lottery/web/app.py` 顶部的 import 区确认有 `from datetime import datetime` 与 `import sqlite3`；若没有则补上（该文件已 `import json`）。
+在 `src/lottery_lab/web/app.py` 顶部的 import 区确认有 `from datetime import datetime` 与 `import sqlite3`；若没有则补上（该文件已 `import json`）。
 
 - [ ] **Step 4: 实现 `api_predict` 的抑制逻辑**
 
-在 `src/football_lottery/web/app.py` 的 `api_predict` 中，替换构造 `matches` 的循环体（原第 179-188 行）：
+在 `src/lottery_lab/web/app.py` 的 `api_predict` 中，替换构造 `matches` 的循环体（原第 179-188 行）：
 
 ```python
     matches = []
@@ -1667,7 +1667,7 @@ def _period_with_matches(conn) -> dict | None:
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/test_web_period_selection.py tests/test_web_api.py tests/test_cli_health.py -v
 ```
 Expected: 全部通过（`test_web_api.py` / `test_cli_health.py` 是既有测试，必须不回归）
@@ -1675,8 +1675,8 @@ Expected: 全部通过（`test_web_api.py` / `test_cli_health.py` 是既有测�
 - [ ] **Step 7: 提交**
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/web/app.py tests/test_web_period_selection.py
+cd D:/project/lottery-lab
+git add src/lottery_lab/web/app.py tests/test_web_period_selection.py
 git commit -m "fix(web): 期次选取加入在售时间判定，修复样本期次被当作当期"
 ```
 
@@ -1685,7 +1685,7 @@ git commit -m "fix(web): 期次选取加入在售时间判定，修复样本期�
 ## Task 8: 前端展示修复
 
 **Files:**
-- Modify: `src/football_lottery/web/templates/predict.html`
+- Modify: `src/lottery_lab/web/templates/predict.html`
 
 - [ ] **Step 1: 更新表头，加入联赛列**
 
@@ -1732,8 +1732,8 @@ git commit -m "fix(web): 期次选取加入在售时间判定，修复样本期�
 - [ ] **Step 3: 手工验证（启动服务）**
 
 ```bash
-cd D:/project/football-lottery
-.venv/Scripts/python.exe -m football_lottery.cli serve --port 8765
+cd D:/project/lottery-lab
+.venv/Scripts/python.exe -m lottery_lab.cli serve --port 8765
 ```
 浏览器打开 `http://127.0.0.1:8765/predict`，确认：
 - 标题显示 `期号 26131（在售，本期截止 2026-09-20 20:30，14 场）`（期号以实际在售期为准）
@@ -1744,8 +1744,8 @@ cd D:/project/football-lottery
 - [ ] **Step 4: 提交**
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/web/templates/predict.html
+cd D:/project/lottery-lab
+git add src/lottery_lab/web/templates/predict.html
 git commit -m "feat(web): 预测页显示期次状态/联赛，并抑制无数据时的假概率"
 ```
 
@@ -1765,8 +1765,8 @@ git commit -m "feat(web): 预测页显示期次状态/联赛，并抑制无数�
 Create `tests/collectors/test_fixture_match_odds.py`：
 
 ```python
-from football_lottery.collectors import fixture_match
-from football_lottery.db import store
+from lottery_lab.collectors import fixture_match
+from lottery_lab.db import store
 
 
 def test_match_period_preserves_existing_odds_json():
@@ -1796,7 +1796,7 @@ def test_match_period_preserves_existing_odds_json():
 
 Run:
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/collectors/test_fixture_match_odds.py -v
 ```
 Expected: PASS（该修复已在工作区）。若 FAIL，说明回归确实存在，此时才需要修 `fixture_match.match_period` 中三处 `store.upsert` 的 `odds_json` 取值，改为透传 `pm["odds_json"]`。
@@ -1804,7 +1804,7 @@ Expected: PASS（该修复已在工作区）。若 FAIL，说明回归确实存�
 - [ ] **Step 3: 提交**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 git add tests/collectors/test_fixture_match_odds.py
 git commit -m "test(collectors): 锁定重映射不清空 period_matches.odds_json"
 ```
@@ -1835,18 +1835,18 @@ seasons: ["2122", "2223", "2324", "2425", "2526", "2627"]
 - [ ] **Step 2: 补下载**
 
 ```bash
-cd D:/project/football-lottery
-.venv/Scripts/python.exe -m football_lottery.cli collect-history
+cd D:/project/lottery-lab
+.venv/Scripts/python.exe -m lottery_lab.cli collect-history
 ```
 Expected: 分赛季输出入库条数，其中 2627 各联赛条数较小（赛季刚开始）。重复执行总数不变（幂等）。
 
 - [ ] **Step 3: 验证**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -c "
 import sys; sys.path.insert(0,'src')
-from football_lottery.db import store
+from lottery_lab.db import store
 conn = store.connect('data/football.db')
 print([tuple(r) for r in conn.execute('SELECT season, COUNT(*) FROM matches GROUP BY season ORDER BY season')])
 print('max date:', conn.execute('SELECT MAX(match_date) FROM matches').fetchone()[0])
@@ -1857,7 +1857,7 @@ Expected: 出现 `('2026/2027', N)`，且 `max date` 推进到 2026-09 中旬。
 - [ ] **Step 4: 提交**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 git add config.yaml
 git commit -m "chore(config): 补下 2627 赛季（football-data 当前赛季）"
 ```
@@ -1869,7 +1869,7 @@ git commit -m "chore(config): 补下 2627 赛季（football-data 当前赛季）
 - [ ] **Step 1: 全量测试**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -m pytest tests/ -q
 ```
 Expected: 全部通过。若出现 `tmp_path` 相关的 Windows 权限错误，属既有环境问题（见 `task_plan.md` 记载），用 `--basetemp` 指向工作区内目录重跑。
@@ -1877,10 +1877,10 @@ Expected: 全部通过。若出现 `tmp_path` 相关的 Windows 权限错误，�
 - [ ] **Step 2: 采集当期 + 历史**
 
 ```bash
-cd D:/project/football-lottery
-.venv/Scripts/python.exe -m football_lottery.cli collect-period
-.venv/Scripts/python.exe -m football_lottery.cli collect-draws --years 4
-.venv/Scripts/python.exe -m football_lottery.cli data-health
+cd D:/project/lottery-lab
+.venv/Scripts/python.exe -m lottery_lab.cli collect-period
+.venv/Scripts/python.exe -m lottery_lab.cli collect-draws --years 4
+.venv/Scripts/python.exe -m lottery_lab.cli data-health
 ```
 Expected:
 - `collect-period` 输出当期期号与 `fixtures: 14`
@@ -1892,10 +1892,10 @@ Expected:
 再跑一次 `collect-period` 与 `collect-draws --years 4`，然后：
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -c "
 import sys; sys.path.insert(0,'src')
-from football_lottery.db import store
+from lottery_lab.db import store
 conn = store.connect('data/football.db')
 print('periods:', conn.execute('SELECT COUNT(*) FROM periods').fetchone()[0])
 print('period_matches:', conn.execute('SELECT COUNT(*) FROM period_matches').fetchone()[0])
@@ -1908,8 +1908,8 @@ Expected: 行数与第一次一致；`bad fixtures` 为 0。
 - [ ] **Step 4: 启动服务供人工验收**
 
 ```bash
-cd D:/project/football-lottery
-.venv/Scripts/python.exe -m football_lottery.cli serve --port 8765
+cd D:/project/lottery-lab
+.venv/Scripts/python.exe -m lottery_lab.cli serve --port 8765
 ```
 
 浏览器逐页确认：
@@ -1922,10 +1922,10 @@ cd D:/project/football-lottery
 `check-draw` 对 `hit_notes <= 0` 的档位直接跳过，所以必须是**必定命中**的计划。构造一个每场只押真实结果的 14 场单式：
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -c "
 import sys, json; sys.path.insert(0,'src')
-from football_lottery.db import store
+from lottery_lab.db import store
 conn = store.connect('data/football.db')
 row = conn.execute('''
     SELECT p.id AS pid, p.period_no, d.results_json
@@ -1947,11 +1947,11 @@ print(row['period_no'])
 记下输出的期号 N，然后：
 
 ```bash
-cd D:/project/football-lottery
-.venv/Scripts/python.exe -m football_lottery.cli check-draw --period N
+cd D:/project/lottery-lab
+.venv/Scripts/python.exe -m lottery_lab.cli check-draw --period N
 .venv/Scripts/python.exe -c "
 import sys; sys.path.insert(0,'src')
-from football_lottery.db import store
+from lottery_lab.db import store
 conn = store.connect('data/football.db')
 print([tuple(r) for r in conn.execute('SELECT tier, hit_notes, amount FROM winnings')])
 "
@@ -1963,11 +1963,11 @@ Expected: 打印非空列表，形如 `[('first', 1, 2125090.0)]`，证明对奖
 - [ ] **Step 6: 记录未命中队名（设计文档 §11 #7 要求）**
 
 ```bash
-cd D:/project/football-lottery
+cd D:/project/lottery-lab
 .venv/Scripts/python.exe -c "
 import sys, json; sys.path.insert(0,'src')
-from football_lottery.db import store
-from football_lottery.collectors import team_alias
+from lottery_lab.db import store
+from lottery_lab.collectors import team_alias
 conn = store.connect('data/football.db')
 row = conn.execute(\"SELECT id, period_no FROM periods WHERE status='current' ORDER BY id DESC LIMIT 1\").fetchone()
 if not row:
@@ -1985,15 +1985,15 @@ Expected: 打印未命中清单（预期全 28 个或近全，因 2627 赛季数
 
 - [ ] **Step 7: 最终提交**
 
-**不要用 `git add -A`** —— 工作区存在与本任务无关的未提交改动（`docs/实现计划.md`、`docs/回测记录.md`、`src/football_lottery/backtest/*`、`models/fusion.py`、`optimizer/*`、若干 `*.md` 等），会被一并卷入。只提交本任务触碰的文件：
+**不要用 `git add -A`** —— 工作区存在与本任务无关的未提交改动（`docs/实现计划.md`、`docs/回测记录.md`、`src/lottery_lab/backtest/*`、`models/fusion.py`、`optimizer/*`、若干 `*.md` 等），会被一并卷入。只提交本任务触碰的文件：
 
 ```bash
-cd D:/project/football-lottery
-git add src/football_lottery/db/store.py src/football_lottery/db/schema.sql \
-        src/football_lottery/collectors/sporttery.py \
-        src/football_lottery/cli.py \
-        src/football_lottery/web/app.py \
-        src/football_lottery/web/templates/predict.html \
+cd D:/project/lottery-lab
+git add src/lottery_lab/db/store.py src/lottery_lab/db/schema.sql \
+        src/lottery_lab/collectors/sporttery.py \
+        src/lottery_lab/cli.py \
+        src/lottery_lab/web/app.py \
+        src/lottery_lab/web/templates/predict.html \
         config.yaml \
         tests/
 git status --short

@@ -2,8 +2,8 @@
 import itertools
 import pytest
 
-from football_lottery.optimizer import solver
-from football_lottery.optimizer.probabilities import p_first
+from lottery_lab.optimizer import solver
+from lottery_lab.optimizer.probabilities import p_first
 
 
 def test_r9_dp_matches_bruteforce():

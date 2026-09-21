@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery.db import store
-from football_lottery.models import jc_predict
+from lottery_lab.db import store
+from lottery_lab.models import jc_predict
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 

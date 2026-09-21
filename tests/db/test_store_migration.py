@@ -1,4 +1,4 @@
-from football_lottery.db import store
+from lottery_lab.db import store
 
 
 def _columns(conn, table):

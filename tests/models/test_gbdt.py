@@ -1,8 +1,8 @@
 """GBDT 训练与持久化测试（实现计划 T15）。"""
 import numpy as np
 
-from football_lottery.features.build import FEATURE_COLUMNS
-from football_lottery.models import gbdt
+from lottery_lab.features.build import FEATURE_COLUMNS
+from lottery_lab.models import gbdt
 
 
 def _synth_dataset(n: int = 300, seed: int = 0):

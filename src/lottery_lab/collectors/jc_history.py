@@ -16,7 +16,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 
-from football_lottery.collectors import sporttery
+from lottery_lab.collectors import sporttery
 
 # 玩法 → 单场接口里的列表字段名
 POOL_LIST_KEY = {

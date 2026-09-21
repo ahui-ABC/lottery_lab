@@ -1,7 +1,7 @@
 import random
 from collections import Counter
 
-from football_lottery.models import lottery_predict as lp
+from lottery_lab.models import lottery_predict as lp
 
 DIGITS = [str(i) for i in range(10)]
 FRONT35 = [f"{i:02d}" for i in range(1, 36)]

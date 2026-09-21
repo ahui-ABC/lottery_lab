@@ -28,11 +28,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
-from football_lottery.db import store
-from football_lottery.models import pipeline
-from football_lottery.collectors import fixture_match, team_alias
-from football_lottery.optimizer import solver
-from football_lottery.optimizer import expand as exp
+from lottery_lab.db import store
+from lottery_lab.models import pipeline
+from lottery_lab.collectors import fixture_match, team_alias
+from lottery_lab.optimizer import solver
+from lottery_lab.optimizer import expand as exp
 
 
 app = FastAPI(title="足彩与数字彩分析", docs_url="/docs")
@@ -97,8 +97,8 @@ def root(request: Request):
     此前 `/` 直接 302 到 `/predict`，导致导航左侧的品牌与「本期预测」指向
     同一页、看着像重复。改为真正的概览页。
     """
-    from football_lottery import daemon_ctl
-    from football_lottery.models import jc_parlay, lottery_track
+    from lottery_lab import daemon_ctl
+    from lottery_lab.models import jc_parlay, lottery_track
 
     conn = _get_conn()
     period = _period_with_matches(conn)
@@ -154,7 +154,7 @@ def page_backtest(request: Request):
 @app.get("/collect", response_class=HTMLResponse)
 def page_collect(request: Request):
     """采集页。任务清单在服务端按分组渲染好，JS 只负责填状态 —— 不在前端再抄一份。"""
-    from football_lottery import jobs
+    from lottery_lab import jobs
 
     return templates.TemplateResponse(request, "collect.html",
                                       {"job_groups": jobs.grouped()})
@@ -201,16 +201,16 @@ def _frequency_groups(history: list[dict], spec: dict, window: int = 100) -> lis
 
 def _lottery_index(conn) -> dict:
     """数字彩总览：五类彩种各一张卡。"""
-    from football_lottery.models import lottery_track as ltk
+    from lottery_lab.models import lottery_track as ltk
 
     return {"lotteries": ltk.overview(conn)}
 
 
 def _lottery_detail(conn, code: str) -> dict:
     """单个彩种的全部页面数据。"""
-    from football_lottery.collectors.lottery_history import LOTTERIES
-    from football_lottery.models import lottery_predict as lp
-    from football_lottery.models import lottery_track as ltk
+    from lottery_lab.collectors.lottery_history import LOTTERIES
+    from lottery_lab.models import lottery_predict as lp
+    from lottery_lab.models import lottery_track as ltk
 
     spec = LOTTERIES[code]
     detail = {"code": code, "name": spec["name"], "spec": spec, "latest": None,
@@ -263,7 +263,7 @@ def page_lottery(request: Request):
 
 @app.get("/lottery/{code}", response_class=HTMLResponse)
 def page_lottery_detail(request: Request, code: str):
-    from football_lottery.collectors.lottery_history import LOTTERIES
+    from lottery_lab.collectors.lottery_history import LOTTERIES
 
     # 未知彩种要明确 404，不能静默回落到第一个 —— 那会让人以为在看大乐透
     if code not in LOTTERIES:
@@ -276,7 +276,7 @@ def page_lottery_detail(request: Request, code: str):
 @app.get("/api/jc/plans")
 def api_jc_plans(limit: int = 12):
     """最近的串关方案（含选场明细与组合数）。"""
-    from football_lottery.models import jc_parlay
+    from lottery_lab.models import jc_parlay
 
     conn = _get_conn()
     return {"plans": jc_parlay.recent_plans(conn, limit=limit)}
@@ -285,7 +285,7 @@ def api_jc_plans(limit: int = 12):
 @app.get("/api/jc/summary")
 def api_jc_summary():
     """串关方案的历史盈亏汇总 + 逐期盈亏序列（供曲线图）。"""
-    from football_lottery.models import jc_parlay
+    from lottery_lab.models import jc_parlay
 
     conn = _get_conn()
     out = jc_parlay.summary(conn)
@@ -296,7 +296,7 @@ def api_jc_summary():
 @app.get("/api/daemon/status")
 def api_daemon_status():
     """采集守护进程状态 + 快照概况。"""
-    from football_lottery import daemon_ctl
+    from lottery_lab import daemon_ctl
 
     state = daemon_ctl.status()
     state["snapshots"] = daemon_ctl.snapshot_summary(_get_conn())
@@ -306,7 +306,7 @@ def api_daemon_status():
 @app.post("/api/daemon/start")
 def api_daemon_start():
     """启动采集守护进程（已在运行时直接返回现状）。"""
-    from football_lottery import daemon_ctl
+    from lottery_lab import daemon_ctl
 
     return daemon_ctl.start()
 
@@ -314,7 +314,7 @@ def api_daemon_start():
 @app.post("/api/daemon/stop")
 def api_daemon_stop():
     """停止采集守护进程。"""
-    from football_lottery import daemon_ctl
+    from lottery_lab import daemon_ctl
 
     return daemon_ctl.stop()
 
@@ -326,7 +326,7 @@ def api_daemon_stop():
 @app.get("/api/jobs")
 def api_jobs():
     """全部任务的状态。"""
-    from football_lottery import jobs
+    from lottery_lab import jobs
 
     return jobs.status()
 
@@ -334,7 +334,7 @@ def api_jobs():
 @app.post("/api/jobs/{key}/start")
 def api_job_start(key: str):
     """启动一个任务。失败原因（未知 key / 已有任务在跑）放在 message 里，HTTP 仍 200。"""
-    from football_lottery import jobs
+    from lottery_lab import jobs
 
     return jobs.start(key)
 
@@ -342,7 +342,7 @@ def api_job_start(key: str):
 @app.post("/api/jobs/{key}/stop")
 def api_job_stop(key: str):
     """停止正在跑的任务。"""
-    from football_lottery import jobs
+    from lottery_lab import jobs
 
     return jobs.stop(key)
 

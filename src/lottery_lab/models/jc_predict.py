@@ -12,7 +12,7 @@ import json
 import sqlite3
 from datetime import date, datetime
 
-from football_lottery.models import market
+from lottery_lab.models import market
 
 # 玩法 → 该玩法的选项名（与官方赔率字段一致）
 POOL_OPTIONS = {
@@ -411,7 +411,7 @@ def odds_by_pool_from_value(value: dict) -> dict[str, list[dict]]:
 
     原始 entry 可直接交给 `_signals`（`_option_vector` 会过滤 updateDate 等元数据）。
     """
-    from football_lottery.collectors import jc_history
+    from lottery_lab.collectors import jc_history
 
     history = value.get("oddsHistory") or {}
     out: dict[str, list[dict]] = {}

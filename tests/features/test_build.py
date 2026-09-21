@@ -1,5 +1,5 @@
 """特征构建测试（实现计划 T14）。防泄漏测试是核心验收。"""
-from football_lottery.features.build import FEATURE_COLUMNS, FeatureBuilder
+from lottery_lab.features.build import FEATURE_COLUMNS, FeatureBuilder
 
 
 def test_no_leakage_by_truncation(all_matches):

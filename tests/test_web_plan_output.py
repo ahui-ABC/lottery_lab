@@ -1,8 +1,8 @@
 """推荐方案输出：每场一行 + 队名 + 中文胜平负。"""
 import pytest
 
-from football_lottery.db import store
-from football_lottery.web import app as web_app
+from lottery_lab.db import store
+from lottery_lab.web import app as web_app
 
 FIXTURES = [
     ("伯恩茅斯", "利物浦"), ("利兹联", "水晶宫"), ("曼城", "桑德兰"),

@@ -2,7 +2,7 @@
 import math
 import pytest
 
-from football_lottery.models import market
+from lottery_lab.models import market
 
 
 def test_probabilities_sum_to_one():

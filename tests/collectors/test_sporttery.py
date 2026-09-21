@@ -1,8 +1,8 @@
 """体彩适配器 / fixture 导入测试（不联网）。"""
 import json
 
-from football_lottery.db import store
-from football_lottery.collectors import sporttery
+from lottery_lab.db import store
+from lottery_lab.collectors import sporttery
 
 
 CSV = (

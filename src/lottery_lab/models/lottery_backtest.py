@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import json
 
-from football_lottery.collectors.lottery_history import LOTTERY_NAMES
-from football_lottery.models import lottery_predict
+from lottery_lab.collectors.lottery_history import LOTTERY_NAMES
+from lottery_lab.models import lottery_predict
 
 BET_PRICE = lottery_predict.BET_PRICE       # 元/注，五类彩种统一 2 元
 MIN_HISTORY = 30        # 走查起点的最小历史长度

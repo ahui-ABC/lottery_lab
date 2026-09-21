@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from football_lottery.db import store
-from football_lottery.web import app as web_app
+from lottery_lab.db import store
+from lottery_lab.web import app as web_app
 
 
 @pytest.fixture

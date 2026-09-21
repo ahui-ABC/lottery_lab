@@ -32,7 +32,7 @@ def _load_config(path: str = "config.yaml") -> dict:
 
 
 def _connect(cfg: dict):
-    from football_lottery.db import store
+    from lottery_lab.db import store
     db_path = cfg.get("db_path", "data/football.db")
     conn = store.connect(db_path)
     store.init_db(conn)
@@ -104,7 +104,7 @@ def data_health(conn) -> dict:
 
 
 def cmd_collect_history(args, cfg: dict) -> int:
-    from football_lottery.collectors import fd
+    from lottery_lab.collectors import fd
     seasons = args.seasons or cfg.get("seasons", ["2122"])
     divisions = args.divisions or cfg.get("divisions", ["E0"])
     conn = _connect(cfg)
@@ -118,7 +118,7 @@ def cmd_collect_period(args, cfg: dict) -> int:
     """采集当期对阵：官方接口取期号 + 14 场对阵并入库。"""
     if args.file:
         return cmd_import_fixtures(args, cfg)
-    from football_lottery.collectors import sporttery
+    from lottery_lab.collectors import sporttery
     conn = _connect(cfg)
     try:
         current = sporttery.fetch_current_period()
@@ -146,7 +146,7 @@ def cmd_collect_draws(args, cfg: dict) -> int:
     """采集近 N 年历史开奖（对阵 + 赛果 + 奖金）并入库。"""
     if args.file:
         return cmd_import_fixtures(args, cfg)
-    from football_lottery.collectors import sporttery
+    from lottery_lab.collectors import sporttery
     conn = _connect(cfg)
     years = getattr(args, "years", None) or 4
     try:
@@ -249,8 +249,8 @@ def cmd_daily_lottery(args, cfg: dict) -> int:
     """
     from types import SimpleNamespace
 
-    from football_lottery.collectors import lottery_history as lh
-    from football_lottery.models import lottery_predict as lp
+    from lottery_lab.collectors import lottery_history as lh
+    from lottery_lab.models import lottery_predict as lp
 
     conn = _connect(cfg)
     picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
@@ -311,7 +311,7 @@ def _maybe_run_daily_lottery(conn, cfg: dict) -> None:
 
 def cmd_collect_odds(args, cfg: dict) -> int:
     """采集竞彩胜平负赔率；--watch 时按固定间隔轮询并只在赔率变化时追加快照。"""
-    from football_lottery.collectors import sporttery
+    from lottery_lab.collectors import sporttery
     import time as _time
 
     log_path = getattr(args, "log", None)
@@ -329,7 +329,7 @@ def cmd_collect_odds(args, cfg: dict) -> int:
             return 2
 
     # watch 是常驻进程：只允许一个实例，避免自启与手动启动叠加导致重复采集
-    from football_lottery import daemon_ctl
+    from lottery_lab import daemon_ctl
 
     lock_path = cfg.get("odds_lock_path") or daemon_ctl.LOCK_PATH
     if not daemon_ctl.acquire_singleton(Path(lock_path)):
@@ -355,7 +355,7 @@ def cmd_collect_odds(args, cfg: dict) -> int:
 
 def cmd_collect_jc_history(args, cfg: dict) -> int:
     """回填竞彩历史：比赛列表 + 5 玩法赔率变化 + 开奖结果。"""
-    from football_lottery.collectors import jc_history, sporttery
+    from lottery_lab.collectors import jc_history, sporttery
 
     if args.force and args.retry_failed:
         print("--force 与 --retry-failed 互斥。", file=sys.stderr)
@@ -438,8 +438,8 @@ def _num_or_none(value):
 
 def cmd_predict_jc(args, cfg: dict) -> int:
     """对竞彩比赛预测并存档。默认拉当期实时数据；--date 走重放（读库不联网）。"""
-    from football_lottery.collectors import jc_history, sporttery
-    from football_lottery.models import jc_predict
+    from lottery_lab.collectors import jc_history, sporttery
+    from lottery_lab.models import jc_predict
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     conn = _connect(cfg)
@@ -504,7 +504,7 @@ def cmd_plan_jc(args, cfg: dict) -> int:
     选场规则与场次数均来自回测结论（见 models/jc_parlay.py 的模块说明）。
     依赖同日的 jc_predictions（先跑 predict-jc）。
     """
-    from football_lottery.models import jc_parlay
+    from lottery_lab.models import jc_parlay
 
     conn = _connect(cfg)
     day = args.date or date.today().isoformat()
@@ -516,7 +516,7 @@ def cmd_plan_jc(args, cfg: dict) -> int:
             return 2
         pools = {args.pool: pools[args.pool]}
 
-    from football_lottery.models import jc_predict
+    from lottery_lab.models import jc_predict
 
     made = []
     for pool, n_legs in pools.items():
@@ -567,7 +567,7 @@ def cmd_daily_jc(args, cfg: dict) -> int:
     print("[3/3] 对奖（含昨日方案）", flush=True)
     rc3 = cmd_score_jc(SimpleNamespace(date=None), cfg)
 
-    from football_lottery.models import jc_parlay
+    from lottery_lab.models import jc_parlay
     conn = _connect(cfg)
     print(json.dumps({"daily_jc": "done", "summary": jc_parlay.summary(conn)},
                      ensure_ascii=False, indent=2), flush=True)
@@ -576,7 +576,7 @@ def cmd_daily_jc(args, cfg: dict) -> int:
 
 def cmd_jc_summary(args, cfg: dict) -> int:
     """竞彩串关方案的历史盈亏。"""
-    from football_lottery.models import jc_parlay
+    from lottery_lab.models import jc_parlay
 
     conn = _connect(cfg)
     out = jc_parlay.summary(conn, pool=args.pool)
@@ -588,8 +588,8 @@ def cmd_jc_summary(args, cfg: dict) -> int:
 
 def cmd_score_jc(args, cfg: dict) -> int:
     """对未对奖的竞彩预测打分。优先读已存档赛果，缺失才联网补拉。"""
-    from football_lottery.collectors import jc_history, sporttery
-    from football_lottery.models import jc_predict
+    from lottery_lab.collectors import jc_history, sporttery
+    from lottery_lab.models import jc_predict
 
     conn = _connect(cfg)
 
@@ -630,7 +630,7 @@ def cmd_score_jc(args, cfg: dict) -> int:
                "skipped": out2["skipped"]}
 
     # 串关方案一并对奖（赛果未出的会被跳过）
-    from football_lottery.models import jc_parlay
+    from lottery_lab.models import jc_parlay
     plans_out = jc_parlay.score_plans(conn, day=args.date)
 
     print(json.dumps({"date": args.date, **out, "parlay_plans": plans_out,
@@ -646,7 +646,7 @@ def _format_pick(lottery: str, pick: dict) -> str:
 
 
 def cmd_collect_lottery(args, cfg: dict) -> int:
-    from football_lottery.collectors import lottery_history as lh
+    from lottery_lab.collectors import lottery_history as lh
 
     conn = _connect(cfg)
     picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
@@ -686,8 +686,8 @@ def cmd_collect_lottery(args, cfg: dict) -> int:
 
 
 def cmd_predict_lottery(args, cfg: dict) -> int:
-    from football_lottery.collectors import lottery_history as lh
-    from football_lottery.models import lottery_predict as lp
+    from lottery_lab.collectors import lottery_history as lh
+    from lottery_lab.models import lottery_predict as lp
 
     conn = _connect(cfg)
     picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
@@ -719,8 +719,8 @@ def cmd_predict_lottery(args, cfg: dict) -> int:
 
 
 def cmd_score_lottery(args, cfg: dict) -> int:
-    from football_lottery.db import store
-    from football_lottery.models import lottery_backtest as lb
+    from lottery_lab.db import store
+    from lottery_lab.models import lottery_backtest as lb
 
     conn = _connect(cfg)
     pending = store.fetchall(conn, """
@@ -746,9 +746,9 @@ def cmd_score_lottery(args, cfg: dict) -> int:
 
 
 def cmd_backtest_lottery(args, cfg: dict) -> int:
-    from football_lottery.collectors import lottery_history as lh
-    from football_lottery.models import lottery_backtest as lb
-    from football_lottery.models import lottery_predict as lp
+    from lottery_lab.collectors import lottery_history as lh
+    from lottery_lab.models import lottery_backtest as lb
+    from lottery_lab.models import lottery_predict as lp
 
     conn = _connect(cfg)
     picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
@@ -769,7 +769,7 @@ def cmd_backtest_lottery(args, cfg: dict) -> int:
 
 
 def cmd_train(args, cfg: dict) -> int:
-    from football_lottery.models import pipeline
+    from lottery_lab.models import pipeline
     conn = _connect(cfg)
     out = pipeline.train_gbdt(
         conn,
@@ -783,7 +783,7 @@ def cmd_train(args, cfg: dict) -> int:
 
 
 def cmd_backtest_plans(args, cfg: dict) -> int:
-    from football_lottery.backtest import plans
+    from lottery_lab.backtest import plans
     out = plans.run(
         db_path=args.db or cfg.get("db_path", "data/football.db"),
         start=args.start,
@@ -803,7 +803,7 @@ def cmd_data_health(args, cfg: dict) -> int:
 
 
 def cmd_import_fixtures(args, cfg: dict) -> int:
-    from football_lottery.collectors import sporttery
+    from lottery_lab.collectors import sporttery
     conn = _connect(cfg)
     out = sporttery.import_fixtures_csv(conn, args.file)
     import json as _json
@@ -812,9 +812,9 @@ def cmd_import_fixtures(args, cfg: dict) -> int:
 
 
 def cmd_map_fixtures(args, cfg: dict) -> int:
-    from football_lottery.collectors import fixture_match
+    from lottery_lab.collectors import fixture_match
     conn = _connect(cfg)
-    from football_lottery.collectors import team_alias
+    from lottery_lab.collectors import team_alias
     if args.period:
         out = {args.period: fixture_match.match_period(conn, args.period, seed=team_alias.SEED)}
     else:
@@ -826,8 +826,8 @@ def cmd_map_fixtures(args, cfg: dict) -> int:
 
 def cmd_check_draw(args, cfg: dict) -> int:
     """对指定期（或全部）跑对奖：从 draw_results 取开奖，对每个 plans 计 hit。"""
-    from football_lottery import winnings as W
-    from football_lottery.db import store
+    from lottery_lab import winnings as W
+    from lottery_lab.db import store
     import json as _json
 
     conn = _connect(cfg)
@@ -900,7 +900,7 @@ def cmd_serve(args, cfg: dict) -> int:
     import uvicorn
     port = int(args.port or cfg.get("serve_port", 8765))
     uvicorn.run(
-        "football_lottery.web.app:app",
+        "lottery_lab.web.app:app",
         host="127.0.0.1",
         port=port,
         reload=False,
@@ -909,7 +909,7 @@ def cmd_serve(args, cfg: dict) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="football_lottery",
+    p = argparse.ArgumentParser(prog="lottery_lab",
                                 description="足彩与数字彩分析工具")
     sub = p.add_subparsers(dest="cmd")
 
@@ -1095,20 +1095,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "backtest":
         # 重定向到 backend.backtest 模块的简单 runner
         if args.model == "market":
-            from football_lottery.backtest import baseline
+            from lottery_lab.backtest import baseline
             s = baseline.run(args.db, args.start, odds_source=args.odds,
                               out_path=args.out or f"data/reports/baseline_market_{args.odds}.json")
             print(json.dumps(s, indent=2, ensure_ascii=False))
             return 0
         if args.model == "dc":
-            from football_lottery.backtest import dc as _dc
+            from lottery_lab.backtest import dc as _dc
             s = _dc.run(args.db, args.start, refit_days=args.refit_days,
                         max_train_matches=args.max_train,
                         out_path=args.out or "data/reports/baseline_dc.json")
             print(json.dumps(s, indent=2, ensure_ascii=False))
             return 0
         if args.model == "gbdt":
-            from football_lottery.backtest import advanced
+            from lottery_lab.backtest import advanced
             s = advanced.run_gbdt(args.db, args.start, refit_days=args.refit_days,
                                   max_train_matches=args.max_train,
                                   use_lightgbm=bool(cfg.get("use_lightgbm", True)),
@@ -1116,7 +1116,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(s, indent=2, ensure_ascii=False))
             return 0
         if args.model == "fused":
-            from football_lottery.backtest import advanced
+            from lottery_lab.backtest import advanced
             s = advanced.run_fused(args.db, args.start, refit_days=args.refit_days,
                                    max_train_matches=args.max_train,
                                    use_lightgbm=bool(cfg.get("use_lightgbm", True)),

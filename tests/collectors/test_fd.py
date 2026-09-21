@@ -1,6 +1,6 @@
 """football-data 采集器测试（不联网，使用 fixture）。"""
 from pathlib import Path
-from football_lottery.collectors import fd
+from lottery_lab.collectors import fd
 
 FIX = Path(__file__).parent.parent / "fixtures" / "fd_E0_2425_sample.csv"
 
@@ -25,7 +25,7 @@ def test_parse_date_dd_mm_yyyy_and_short():
 
 def test_collect_writes_to_db(tmp_path):
     """从 fixture 入库：upsert league/teams/matches 三张表都不报错。"""
-    from football_lottery.db import store
+    from lottery_lab.db import store
     conn = store.connect(str(tmp_path / "t.db"))
     store.init_db(conn)
     fd.collect(conn, [(FIX, "E0", "2425")], silent=True)
@@ -46,7 +46,7 @@ def test_fetch_and_collect_skips_past_seasons(tmp_path, monkeypatch):
 
     否则每点一次「抓联赛历史数据」都要重下 赛季数 × 联赛数 个文件。
     """
-    from football_lottery.db import store
+    from lottery_lab.db import store
     conn = store.connect(str(tmp_path / "t.db"))
     store.init_db(conn)
 
@@ -76,7 +76,7 @@ def test_fetch_and_collect_skips_past_seasons(tmp_path, monkeypatch):
 
 def test_season_floor_protects_against_partial_data(tmp_path):
     """半截数据不能把赛季冻住 —— 场次数不到下限时仍要重下。"""
-    from football_lottery.db import store
+    from lottery_lab.db import store
     conn = store.connect(str(tmp_path / "t.db"))
     store.init_db(conn)
     assert fd._season_loaded(conn, "2324", "E0") is False     # 空库

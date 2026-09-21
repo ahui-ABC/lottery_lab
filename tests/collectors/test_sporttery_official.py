@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery.collectors import sporttery
+from lottery_lab.collectors import sporttery
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -13,7 +13,7 @@ def _fixture(name):
 
 
 def _memory_db():
-    from football_lottery.db import store
+    from lottery_lab.db import store
 
     conn = store.connect(":memory:")
     store.init_db(conn)

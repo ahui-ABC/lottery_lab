@@ -1,8 +1,8 @@
 import json
 from argparse import Namespace
 
-from football_lottery import cli
-from football_lottery.db import store
+from lottery_lab import cli
+from lottery_lab.db import store
 
 
 def test_check_draw_is_idempotent_for_r9(monkeypatch, capsys):

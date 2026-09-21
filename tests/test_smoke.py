@@ -1,3 +1,3 @@
 def test_package_importable():
-    import football_lottery
-    assert football_lottery.__name__ == "football_lottery"
+    import lottery_lab
+    assert lottery_lab.__name__ == "lottery_lab"

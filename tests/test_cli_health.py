@@ -1,7 +1,7 @@
 """data_health 测试。"""
 import json
-from football_lottery.db import store
-from football_lottery.cli import build_parser, data_health
+from lottery_lab.db import store
+from lottery_lab.cli import build_parser, data_health
 
 
 def test_data_health_returns_dict(tmp_path):

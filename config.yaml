@@ -4,6 +4,10 @@ budget_per_game: 64        # 元/玩法（14 场与任九各自独立）
 ticket_price: 2            # 元/注（足彩固定 2 元）
 use_lightgbm: true         # 3.14 装不上时切 false，自动改用 sklearn.HistGradientBoostingClassifier
 
+# `serve` 不带 --port 时用这个端口。显式写出来，免得默认值与实际使用的端口
+# 不一致 —— 之前就是因为 8765/8767 混用，页面看起来「打不开」
+serve_port: 8767
+
 divisions:                 # football-data 联赛代码
   [E0, E1, D1, I1, SP1, F1, N1, P1, SC0]
 

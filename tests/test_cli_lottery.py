@@ -4,8 +4,8 @@ from datetime import date
 
 import pytest
 
-from football_lottery import cli
-from football_lottery.db import store
+from lottery_lab import cli
+from lottery_lab.db import store
 
 
 def _conn():
@@ -112,7 +112,7 @@ def test_predict_and_score_round_trip(tmp_path, capsys, monkeypatch):
     `refresh_latest` 会真的连网刷最新一期，测试里必须打桩 —— 否则库外的新期号
     会改变 next_issue 的结果，测试就成了「今天跑得过、明天跑不过」。
     """
-    from football_lottery.collectors import lottery_history as lh
+    from lottery_lab.collectors import lottery_history as lh
 
     monkeypatch.setattr(lh, "refresh_latest", lambda conn, lottery: 0)
 

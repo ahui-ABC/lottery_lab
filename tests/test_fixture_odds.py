@@ -1,7 +1,7 @@
 import json
 
-from football_lottery.collectors import fixture_match
-from football_lottery.db import store
+from lottery_lab.collectors import fixture_match
+from lottery_lab.db import store
 
 
 def test_match_period_preserves_period_odds():

@@ -1,4 +1,4 @@
-from football_lottery.collectors import team_alias
+from lottery_lab.collectors import team_alias
 
 
 SEED = {
@@ -30,7 +30,7 @@ def test_unknown_returns_none():
 
 
 def test_confirm_persists(tmp_path):
-    from football_lottery.db import store
+    from lottery_lab.db import store
     conn = store.connect(str(tmp_path / "t.db"))
     store.init_db(conn)
     store.upsert(conn, "teams", {"name_en": "Arsenal", "name_cn": "阿森纳"}, ["name_en"])
@@ -40,7 +40,7 @@ def test_confirm_persists(tmp_path):
 
 def test_resolve_uses_db_first(tmp_path):
     """DB 中已确认的别名应优先于 seed 模糊匹配。"""
-    from football_lottery.db import store
+    from lottery_lab.db import store
     conn = store.connect(str(tmp_path / "t.db"))
     store.init_db(conn)
     store.upsert(conn, "teams", {"name_en": "Tottenham", "name_cn": "热刺"}, ["name_en"])

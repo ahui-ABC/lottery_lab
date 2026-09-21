@@ -12,8 +12,8 @@ import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from football_lottery.models import market
-from football_lottery.backtest.metrics import logloss, brier, accuracy
+from lottery_lab.models import market
+from lottery_lab.backtest.metrics import logloss, brier, accuracy
 
 
 def load_matches(conn: sqlite3.Connection) -> list[dict]:
@@ -87,7 +87,7 @@ def run(
     odds_source: str = "avg",
     out_path: str = "data/reports/baseline_market.json",
 ) -> dict:
-    from football_lottery.db import store
+    from lottery_lab.db import store
     conn = store.connect(db_path)
     store.init_db(conn)
     matches = load_matches(conn)

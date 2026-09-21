@@ -1,6 +1,6 @@
 """方案展开为单式清单 + 对奖计算测试。"""
-from football_lottery.optimizer import expand
-from football_lottery import winnings
+from lottery_lab.optimizer import expand
+from lottery_lab import winnings
 
 
 def test_expand_3_legs_bruteforce_count():

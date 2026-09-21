@@ -4,8 +4,8 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from football_lottery.collectors import lottery_history as lh
-from football_lottery.db import store
+from lottery_lab.collectors import lottery_history as lh
+from lottery_lab.db import store
 
 CODES = ["dlt", "ssq", "p3", "p5", "3d"]
 
@@ -38,7 +38,7 @@ def client(tmp_path, monkeypatch):
     (tmp_path / "config.yaml").write_text(f"db_path: {db}\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(lh, "refresh_latest", lambda conn, lottery: 0)
-    from football_lottery.web import app as web_app
+    from lottery_lab.web import app as web_app
     return TestClient(web_app.app)
 
 
@@ -76,7 +76,7 @@ def test_index_survives_empty_database(tmp_path, monkeypatch):
     conn.close()
     (tmp_path / "config.yaml").write_text(f"db_path: {db}\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
-    from football_lottery.web import app as web_app
+    from lottery_lab.web import app as web_app
     resp = TestClient(web_app.app).get("/lottery")
     assert resp.status_code == 200
     assert "库内暂无数据" in resp.text

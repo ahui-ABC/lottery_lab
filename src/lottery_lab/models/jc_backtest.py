@@ -13,7 +13,7 @@ import json
 import sqlite3
 from collections import defaultdict
 
-from football_lottery.models import jc_predict
+from lottery_lab.models import jc_predict
 
 RESULT_COLUMN = {
     "had": "result_had", "hhad": "result_hhad",

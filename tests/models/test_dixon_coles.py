@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from football_lottery.models.dixon_coles import DixonColes
+from lottery_lab.models.dixon_coles import DixonColes
 
 
 def _synthetic(n_weeks=80, seed=7):

@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery import cli
-from football_lottery.collectors import sporttery
-from football_lottery.db import store
+from lottery_lab import cli
+from lottery_lab.collectors import sporttery
+from lottery_lab.db import store
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -74,7 +74,7 @@ def test_collect_period_reports_collector_error(monkeypatch, conn, capsys):
 
 
 def test_singleton_lock_takes_over_stale_lock(tmp_path, monkeypatch):
-    from football_lottery import daemon_ctl
+    from lottery_lab import daemon_ctl
 
     lock = tmp_path / "daemon.lock"
     lock.write_text("999999", encoding="utf-8")   # 几乎必然不存在的 PID
@@ -85,7 +85,7 @@ def test_singleton_lock_takes_over_stale_lock(tmp_path, monkeypatch):
 
 
 def test_singleton_lock_rejects_when_holder_alive(tmp_path, monkeypatch):
-    from football_lottery import daemon_ctl
+    from lottery_lab import daemon_ctl
 
     lock = tmp_path / "daemon.lock"
     lock.write_text("4242", encoding="utf-8")
@@ -95,7 +95,7 @@ def test_singleton_lock_rejects_when_holder_alive(tmp_path, monkeypatch):
 
 
 def test_is_running_ignores_dead_pid(tmp_path, monkeypatch):
-    from football_lottery import daemon_ctl
+    from lottery_lab import daemon_ctl
 
     lock = tmp_path / "daemon.lock"
     lock.write_text("31337", encoding="utf-8")

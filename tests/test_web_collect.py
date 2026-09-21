@@ -4,8 +4,8 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from football_lottery import jobs
-from football_lottery.db import store
+from lottery_lab import jobs
+from lottery_lab.db import store
 
 
 @pytest.fixture
@@ -19,7 +19,7 @@ def client(tmp_path, monkeypatch):
     # 日志目录也挪走，别往真实项目里写
     monkeypatch.setattr(jobs, "JOBS_DIR", tmp_path / "jobs")
     monkeypatch.setattr(jobs, "GLOBAL_LOCK", tmp_path / "jobs" / "running.lock")
-    from football_lottery.web import app as web_app
+    from lottery_lab.web import app as web_app
     return TestClient(web_app.app)
 
 

@@ -15,7 +15,7 @@ import random
 from collections import Counter
 from datetime import date, datetime
 
-from football_lottery.collectors.lottery_history import LOTTERIES
+from lottery_lab.collectors.lottery_history import LOTTERIES
 
 STRATEGIES = ("random", "hot", "cold", "overdue", "weighted")
 STRATEGY_LABELS = {

@@ -5,9 +5,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from football_lottery import winnings
-from football_lottery.models import market
-from football_lottery.optimizer import solver
+from lottery_lab import winnings
+from lottery_lab.models import market
+from lottery_lab.optimizer import solver
 
 
 def _json(value, fallback=None):
@@ -118,7 +118,7 @@ def run(
     budget: int = 64,
     out_path: str = "data/reports/plan_backtest.json",
 ) -> dict:
-    from football_lottery.db import store
+    from lottery_lab.db import store
     conn = store.connect(db_path)
     store.init_db(conn)
     params = []

@@ -1,10 +1,10 @@
 """fixture_match 测试。"""
 import json
 from datetime import date
-from football_lottery.db import store
-from football_lottery.collectors import fd
-from football_lottery.collectors import fixture_match
-from football_lottery.collectors import team_alias
+from lottery_lab.db import store
+from lottery_lab.collectors import fd
+from lottery_lab.collectors import fixture_match
+from lottery_lab.collectors import team_alias
 
 
 def _seed_db(tmp_path):
@@ -48,7 +48,7 @@ def test_match_by_date_and_names(tmp_path):
     conn = _seed_db(tmp_path)
     _put_history(conn)
     # 写入 period: 3 场对阵，前 2 场应匹配
-    from football_lottery.collectors import sporttery
+    from lottery_lab.collectors import sporttery
     csv = (
         'period_no,seq,home_cn,away_cn,match_time,result,draw_14,first_prize,second_prize,r9_prize,draw_date\n'
         '26001,1,曼城,阿森纳,2026-09-19T20:00,3,"3,1,0,3,1,0,3,1,0,3,1,0,3,1",,\n'

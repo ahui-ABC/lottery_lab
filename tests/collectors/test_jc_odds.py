@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery.collectors import sporttery
-from football_lottery.db import store
-from football_lottery.models import market
+from lottery_lab.collectors import sporttery
+from lottery_lab.db import store
+from lottery_lab.models import market
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -271,7 +271,7 @@ def test_devig_falls_back_to_avg_for_historical_periods():
 
 # ---- 7. 端到端：当期缺赔率数归零 ----------------------------------------------------
 def test_current_period_missing_odds_drops_to_zero():
-    from football_lottery.cli import data_health
+    from lottery_lab.cli import data_health
 
     conn = _memory_db()
     _seed_period(conn, [

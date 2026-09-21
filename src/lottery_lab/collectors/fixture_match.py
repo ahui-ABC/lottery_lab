@@ -10,8 +10,8 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 
-from football_lottery.collectors import team_alias
-from football_lottery.db import store
+from lottery_lab.collectors import team_alias
+from lottery_lab.db import store
 
 
 def _candidate_matches(

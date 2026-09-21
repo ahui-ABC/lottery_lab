@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery import cli, jobs
+from lottery_lab import cli, jobs
 
 
 @pytest.fixture

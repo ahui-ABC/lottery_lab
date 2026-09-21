@@ -1,7 +1,7 @@
 import json
 
-from football_lottery.backtest import plans
-from football_lottery.db import store
+from lottery_lab.backtest import plans
+from lottery_lab.db import store
 
 
 def test_evaluate_sfc_uses_each_prize_tier():

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-APP_JS = Path(__file__).resolve().parents[1] / "src" / "football_lottery" / \
+APP_JS = Path(__file__).resolve().parents[1] / "src" / "lottery_lab" / \
     "web" / "static" / "app.js"
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None,

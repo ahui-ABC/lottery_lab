@@ -35,15 +35,15 @@
 
 | 文件 | 职责 |
 |---|---|
-| `src/football_lottery/collectors/lottery_history.py` | 新建。抓取 + 解析 + 回填同步。唯一与 78500.cn 打交道的地方 |
-| `src/football_lottery/models/lottery_predict.py` | 新建。权重函数、Gumbel 采样、生成推荐号码 |
-| `src/football_lottery/models/lottery_backtest.py` | 新建。奖级判定、逐期走查、配对显著性 |
-| `src/football_lottery/db/schema.sql` | 修改。追加 3 张表 |
-| `src/football_lottery/cli.py` | 修改。追加 4 个子命令（含 `main()` 分发分支） |
-| `src/football_lottery/web/app.py` | 修改。追加 `/lottery` 路由与 `_lottery_context` |
-| `src/football_lottery/web/templates/lottery.html` | 新建。数字彩页面 |
-| `src/football_lottery/web/templates/base.html` | 修改。导航加 tab |
-| `src/football_lottery/web/static/styles.css` | 修改。号码球样式 |
+| `src/lottery_lab/collectors/lottery_history.py` | 新建。抓取 + 解析 + 回填同步。唯一与 78500.cn 打交道的地方 |
+| `src/lottery_lab/models/lottery_predict.py` | 新建。权重函数、Gumbel 采样、生成推荐号码 |
+| `src/lottery_lab/models/lottery_backtest.py` | 新建。奖级判定、逐期走查、配对显著性 |
+| `src/lottery_lab/db/schema.sql` | 修改。追加 3 张表 |
+| `src/lottery_lab/cli.py` | 修改。追加 4 个子命令（含 `main()` 分发分支） |
+| `src/lottery_lab/web/app.py` | 修改。追加 `/lottery` 路由与 `_lottery_context` |
+| `src/lottery_lab/web/templates/lottery.html` | 新建。数字彩页面 |
+| `src/lottery_lab/web/templates/base.html` | 修改。导航加 tab |
+| `src/lottery_lab/web/static/styles.css` | 修改。号码球样式 |
 | `tests/fixtures/lottery/{dlt,ssq,p3,p5,3d}.html` | 新建。五种彩种真实页面裁剪 |
 | `tests/collectors/test_lottery_parse.py` | 新建 |
 | `tests/models/test_lottery_predict.py` | 新建 |
@@ -55,12 +55,12 @@
 ### Task 1: 数据表
 
 **Files:**
-- Modify: `src/football_lottery/db/schema.sql`（追加到文件末尾）
+- Modify: `src/lottery_lab/db/schema.sql`（追加到文件末尾）
 - Test: `tests/test_cli_lottery.py`
 
 - [ ] **Step 1: 追加建表 SQL**
 
-在 `src/football_lottery/db/schema.sql` 末尾追加：
+在 `src/lottery_lab/db/schema.sql` 末尾追加：
 
 ```sql
 -- 数字彩开奖（大乐透/双色球/排列三/排列五/福彩3D）
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS lottery_backtest (
 import json
 import sqlite3
 
-from football_lottery.db import store
+from lottery_lab.db import store
 
 
 def _conn():
@@ -136,7 +136,7 @@ Expected: PASS
 - [ ] **Step 4: 提交**
 
 ```bash
-git add src/football_lottery/db/schema.sql tests/test_cli_lottery.py
+git add src/lottery_lab/db/schema.sql tests/test_cli_lottery.py
 git commit -m "feat(lottery): 数字彩开奖/预测/回测三张表"
 ```
 
@@ -145,7 +145,7 @@ git commit -m "feat(lottery): 数字彩开奖/预测/回测三张表"
 ### Task 2: 页面解析器
 
 **Files:**
-- Create: `src/football_lottery/collectors/lottery_history.py`
+- Create: `src/lottery_lab/collectors/lottery_history.py`
 - Create: `tests/fixtures/lottery/{dlt,ssq,p3,p5,3d}.html`
 - Test: `tests/collectors/test_lottery_parse.py`
 
@@ -194,9 +194,9 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery.collectors import lottery_history as lh
-from football_lottery.collectors.lottery_history import parse_draw
-from football_lottery.db import store
+from lottery_lab.collectors import lottery_history as lh
+from lottery_lab.collectors.lottery_history import parse_draw
+from lottery_lab.db import store
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "lottery"
 
@@ -292,11 +292,11 @@ def test_sync_range_skips_existing(monkeypatch):
 - [ ] **Step 3: 跑测试确认失败**
 
 Run: `.venv/Scripts/python.exe -m pytest tests/collectors/test_lottery_parse.py -v`
-Expected: FAIL — `ModuleNotFoundError: football_lottery.collectors.lottery_history`
+Expected: FAIL — `ModuleNotFoundError: lottery_lab.collectors.lottery_history`
 
 - [ ] **Step 4: 实现**
 
-创建 `src/football_lottery/collectors/lottery_history.py`：
+创建 `src/lottery_lab/collectors/lottery_history.py`：
 
 ```python
 """数字彩开奖采集（数据源：彩宝贝 kaijiang.78500.cn）。
@@ -581,7 +581,7 @@ Expected: 全部 PASS
 - [ ] **Step 6: 提交**
 
 ```bash
-git add src/football_lottery/collectors/lottery_history.py tests/fixtures/lottery tests/collectors/test_lottery_parse.py
+git add src/lottery_lab/collectors/lottery_history.py tests/fixtures/lottery tests/collectors/test_lottery_parse.py
 git commit -m "feat(lottery): 开奖页解析器与断点续传回填"
 ```
 
@@ -590,7 +590,7 @@ git commit -m "feat(lottery): 开奖页解析器与断点续传回填"
 ### Task 3: 选号策略
 
 **Files:**
-- Create: `src/football_lottery/models/lottery_predict.py`
+- Create: `src/lottery_lab/models/lottery_predict.py`
 - Test: `tests/models/test_lottery_predict.py`
 
 - [ ] **Step 1: 写失败的测试**
@@ -600,7 +600,7 @@ git commit -m "feat(lottery): 开奖页解析器与断点续传回填"
 ```python
 import random
 
-from football_lottery.models import lottery_predict as lp
+from lottery_lab.models import lottery_predict as lp
 
 
 def _draw(digits=(), front=(), back=()):
@@ -722,7 +722,7 @@ Expected: FAIL — `ModuleNotFoundError`
 
 - [ ] **Step 3: 实现**
 
-创建 `src/football_lottery/models/lottery_predict.py`：
+创建 `src/lottery_lab/models/lottery_predict.py`：
 
 ```python
 """数字彩选号策略。
@@ -742,7 +742,7 @@ import random
 from collections import Counter
 from datetime import date, datetime
 
-from football_lottery.collectors.lottery_history import LOTTERIES
+from lottery_lab.collectors.lottery_history import LOTTERIES
 
 STRATEGIES = ("random", "hot", "cold", "overdue", "weighted")
 STRATEGY_LABELS = {
@@ -921,7 +921,7 @@ Expected: 全部 PASS
 - [ ] **Step 5: 提交**
 
 ```bash
-git add src/football_lottery/models/lottery_predict.py tests/models/test_lottery_predict.py
+git add src/lottery_lab/models/lottery_predict.py tests/models/test_lottery_predict.py
 git commit -m "feat(lottery): 五条选号策略（权重函数 + Gumbel 加权抽样）"
 ```
 
@@ -930,7 +930,7 @@ git commit -m "feat(lottery): 五条选号策略（权重函数 + Gumbel 加权�
 ### Task 4: 奖级判定与回测
 
 **Files:**
-- Create: `src/football_lottery/models/lottery_backtest.py`
+- Create: `src/lottery_lab/models/lottery_backtest.py`
 - Test: `tests/models/test_lottery_backtest.py`
 
 - [ ] **Step 1: 写失败的测试**
@@ -938,7 +938,7 @@ git commit -m "feat(lottery): 五条选号策略（权重函数 + Gumbel 加权�
 `tests/models/test_lottery_backtest.py`：
 
 ```python
-from football_lottery.models import lottery_backtest as lb
+from lottery_lab.models import lottery_backtest as lb
 
 
 def _draws(n, lottery="p3", numbers=None, start=1):
@@ -1096,7 +1096,7 @@ Expected: FAIL — `ModuleNotFoundError`
 
 - [ ] **Step 3: 实现**
 
-创建 `src/football_lottery/models/lottery_backtest.py`：
+创建 `src/lottery_lab/models/lottery_backtest.py`：
 
 ```python
 """数字彩回测：逐期走查 + 与随机选号的配对显著性。
@@ -1114,8 +1114,8 @@ from __future__ import annotations
 
 import json
 
-from football_lottery.collectors.lottery_history import LOTTERY_NAMES
-from football_lottery.models import lottery_predict
+from lottery_lab.collectors.lottery_history import LOTTERY_NAMES
+from lottery_lab.models import lottery_predict
 
 BET_PRICE = lottery_predict.BET_PRICE       # 元/注，五类彩种统一 2 元
 MIN_HISTORY = 30        # 走查起点的最小历史长度
@@ -1347,7 +1347,7 @@ Expected: 全部 PASS
 - [ ] **Step 5: 提交**
 
 ```bash
-git add src/football_lottery/models/lottery_backtest.py tests/models/test_lottery_backtest.py
+git add src/lottery_lab/models/lottery_backtest.py tests/models/test_lottery_backtest.py
 git commit -m "feat(lottery): 奖级判定 + 逐期走查回测 + 配对显著性"
 ```
 
@@ -1356,7 +1356,7 @@ git commit -m "feat(lottery): 奖级判定 + 逐期走查回测 + 配对显著�
 ### Task 5: CLI 子命令
 
 **Files:**
-- Modify: `src/football_lottery/cli.py`
+- Modify: `src/lottery_lab/cli.py`
 - Test: `tests/test_cli_lottery.py`（追加）
 
 - [ ] **Step 1: 写失败的测试**
@@ -1364,7 +1364,7 @@ git commit -m "feat(lottery): 奖级判定 + 逐期走查回测 + 配对显著�
 追加到 `tests/test_cli_lottery.py`：
 
 ```python
-from football_lottery import cli
+from lottery_lab import cli
 
 
 def test_lottery_commands_dispatch_in_main():
@@ -1392,7 +1392,7 @@ Expected: FAIL — `SystemExit`（子命令不存在）
 
 - [ ] **Step 3: 实现命令**
 
-在 `src/football_lottery/cli.py` 中 `cmd_score_jc` 之后插入四个函数，
+在 `src/lottery_lab/cli.py` 中 `cmd_score_jc` 之后插入四个函数，
 **并在 `main()` 的 `if args.cmd == "backtest-plans":` 之前加上四个分发分支**：
 
 ```python
@@ -1403,7 +1403,7 @@ def _format_pick(lottery: str, pick: dict) -> str:
 
 
 def cmd_collect_lottery(args, cfg: dict) -> int:
-    from football_lottery.collectors import lottery_history as lh
+    from lottery_lab.collectors import lottery_history as lh
 
     conn = _connect(cfg)
     picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
@@ -1436,8 +1436,8 @@ def cmd_collect_lottery(args, cfg: dict) -> int:
 
 
 def cmd_predict_lottery(args, cfg: dict) -> int:
-    from football_lottery.collectors import lottery_history as lh
-    from football_lottery.models import lottery_predict as lp
+    from lottery_lab.collectors import lottery_history as lh
+    from lottery_lab.models import lottery_predict as lp
 
     conn = _connect(cfg)
     picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
@@ -1471,7 +1471,7 @@ def cmd_predict_lottery(args, cfg: dict) -> int:
 
 
 def cmd_score_lottery(args, cfg: dict) -> int:
-    from football_lottery.models import lottery_backtest as lb
+    from lottery_lab.models import lottery_backtest as lb
 
     conn = _connect(cfg)
     pending = store.fetchall(conn, """
@@ -1497,9 +1497,9 @@ def cmd_score_lottery(args, cfg: dict) -> int:
 
 
 def cmd_backtest_lottery(args, cfg: dict) -> int:
-    from football_lottery.collectors import lottery_history as lh
-    from football_lottery.models import lottery_backtest as lb
-    from football_lottery.models import lottery_predict as lp
+    from lottery_lab.collectors import lottery_history as lh
+    from lottery_lab.models import lottery_backtest as lb
+    from lottery_lab.models import lottery_predict as lp
 
     conn = _connect(cfg)
     picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
@@ -1563,7 +1563,7 @@ def cmd_backtest_lottery(args, cfg: dict) -> int:
 ```
 
 `cli.py` 需确认顶部已 `import json`、`from datetime import date`
-和 `from football_lottery.db import store`；缺哪个补哪个（`date` 可能只导入了 `datetime`，
+和 `from lottery_lab.db import store`；缺哪个补哪个（`date` 可能只导入了 `datetime`，
 那就把 `date.today()` 写成 `datetime.now().date()`）。
 
 - [ ] **Step 4: 跑测试 + 全量回归**
@@ -1577,7 +1577,7 @@ Expected: 全部通过（此前 197 项 + 新增，无回归）
 - [ ] **Step 5: 提交**
 
 ```bash
-git add src/football_lottery/cli.py tests/test_cli_lottery.py
+git add src/lottery_lab/cli.py tests/test_cli_lottery.py
 git commit -m "feat(cli): 数字彩采集/预测/对奖/回测四条子命令"
 ```
 
@@ -1586,15 +1586,15 @@ git commit -m "feat(cli): 数字彩采集/预测/对奖/回测四条子命令"
 ### Task 6: Web 页面
 
 **Files:**
-- Modify: `src/football_lottery/web/app.py`
-- Create: `src/football_lottery/web/templates/lottery.html`
-- Modify: `src/football_lottery/web/templates/base.html`
-- Modify: `src/football_lottery/web/static/styles.css`
+- Modify: `src/lottery_lab/web/app.py`
+- Create: `src/lottery_lab/web/templates/lottery.html`
+- Modify: `src/lottery_lab/web/templates/base.html`
+- Modify: `src/lottery_lab/web/static/styles.css`
 - Test: `tests/test_web_lottery.py`
 
 - [ ] **Step 1: 加样式**
 
-追加到 `src/football_lottery/web/static/styles.css`：
+追加到 `src/lottery_lab/web/static/styles.css`：
 
 ```css
 /* ---- 数字彩号码球 ------------------------------------------------------ */
@@ -1620,7 +1620,7 @@ git commit -m "feat(cli): 数字彩采集/预测/对奖/回测四条子命令"
 
 - [ ] **Step 2: 加路由**
 
-在 `src/football_lottery/web/app.py` 的 `/jc` 路由之后追加
+在 `src/lottery_lab/web/app.py` 的 `/jc` 路由之后追加
 （**用文件里既有的 `_get_conn()` 与 `templates.TemplateResponse(request, ...)`，
 不要自己发明名字**）：
 
@@ -1660,8 +1660,8 @@ def _frequency_groups(history: list[dict], spec: dict, window: int = 100) -> lis
 
 
 def _lottery_context(conn) -> dict:
-    from football_lottery.collectors.lottery_history import LOTTERIES
-    from football_lottery.models import lottery_predict as lp
+    from lottery_lab.collectors.lottery_history import LOTTERIES
+    from lottery_lab.models import lottery_predict as lp
 
     lotteries = []
     for code, spec in LOTTERIES.items():
@@ -1708,7 +1708,7 @@ def lottery_page(request: Request):
 
 - [ ] **Step 3: 写模板**
 
-创建 `src/football_lottery/web/templates/lottery.html`：
+创建 `src/lottery_lab/web/templates/lottery.html`：
 
 ```html
 {% extends "base.html" %}
@@ -1856,7 +1856,7 @@ import sqlite3
 
 import pytest
 
-from football_lottery.db import store
+from lottery_lab.db import store
 
 
 @pytest.fixture
@@ -1875,7 +1875,7 @@ def client(tmp_path, monkeypatch):
     conn.close()
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yaml").write_text(f"db_path: {db}\n", encoding="utf-8")
-    from football_lottery.web import app as web_app
+    from lottery_lab.web import app as web_app
     from fastapi.testclient import TestClient
     return TestClient(web_app.app)
 
@@ -1899,7 +1899,7 @@ def test_lottery_page_shows_next_issue_hint(client):
 Run: `.venv/Scripts/python.exe -m pytest tests/test_web_lottery.py -v`
 Expected: PASS
 
-Run: `.venv/Scripts/python.exe -m football_lottery.cli serve`
+Run: `.venv/Scripts/python.exe -m lottery_lab.cli serve`
 浏览器打开 `http://127.0.0.1:8000/lottery`，确认：
 1. 五个彩种都渲染出来，无数据时显示提示而不是报错
 2. 导航栏「数字彩」高亮，且点击能跳转
@@ -1908,7 +1908,7 @@ Run: `.venv/Scripts/python.exe -m football_lottery.cli serve`
 - [ ] **Step 7: 提交**
 
 ```bash
-git add src/football_lottery/web/ tests/test_web_lottery.py
+git add src/lottery_lab/web/ tests/test_web_lottery.py
 git commit -m "feat(web): 数字彩页面（开奖/推荐/频次遗漏/回测表）"
 ```
 
@@ -1920,7 +1920,7 @@ git commit -m "feat(web): 数字彩页面（开奖/推荐/频次遗漏/回测表
 
 - [ ] **Step 1: 回填**
 
-Run: `.venv/Scripts/python.exe -m football_lottery.cli collect-lottery --lottery all --from 2020`
+Run: `.venv/Scripts/python.exe -m lottery_lab.cli collect-lottery --lottery all --from 2020`
 Expected: 五类彩种各打印进度与最终期数。耗时 5–15 分钟。
 **这一步会真的向第三方站点发起约 8000 次请求** —— 是设计内的一次性回填，不是测试。
 并发固定 6，不加码。
@@ -1946,12 +1946,12 @@ Expected: 每彩种 1000–2500 期；`prizes == '[]'` 的行数应当为 0
 
 - [ ] **Step 3: 预测下一期**
 
-Run: `.venv/Scripts/python.exe -m football_lottery.cli predict-lottery --lottery all`
+Run: `.venv/Scripts/python.exe -m lottery_lab.cli predict-lottery --lottery all`
 Expected: 打印五类彩种下一期各策略推荐号码。
 
 - [ ] **Step 4: 回测**
 
-Run: `.venv/Scripts/python.exe -m football_lottery.cli backtest-lottery --lottery all`
+Run: `.venv/Scripts/python.exe -m lottery_lab.cli backtest-lottery --lottery all`
 Expected: 打印五张对比表。**预期结论是各策略与 `random` 无显著差异，返还率接近各自
 理论返奖率**（大乐透约 51%、双色球约 51%、排列三/3D 直选 52%、排列五 50%）。
 若某彩种返还率明显偏离理论值（比如 >60%），那不是运气，是 bug。

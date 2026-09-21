@@ -12,11 +12,11 @@ from typing import Any
 
 import numpy as np
 
-from football_lottery.db import store
-from football_lottery.features.build import FEATURE_COLUMNS, FeatureBuilder
-from football_lottery.models import dixon_coles, market
-from football_lottery.models.fusion import Fusion
-from football_lottery.models.gbdt import GBDTModel
+from lottery_lab.db import store
+from lottery_lab.features.build import FEATURE_COLUMNS, FeatureBuilder
+from lottery_lab.models import dixon_coles, market
+from lottery_lab.models.fusion import Fusion
+from lottery_lab.models.gbdt import GBDTModel
 
 OUTCOME_INDEX = {"H": 0, "D": 1, "A": 2}
 

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from football_lottery import daemon_ctl
+from lottery_lab import daemon_ctl
 
 JOBS_DIR = daemon_ctl.PROJECT_ROOT / "data" / "logs" / "jobs"
 GLOBAL_LOCK = JOBS_DIR / "running.lock"
@@ -37,7 +37,7 @@ class JobSpec:
     key: str            # 同时用作日志文件名与 URL 片段
     group: str
     label: str
-    cli: tuple[str, ...]  # 传给 `python -m football_lottery.cli` 的参数
+    cli: tuple[str, ...]  # 传给 `python -m lottery_lab.cli` 的参数
     hint: str           # 大致耗时，给用户的心理预期
 
 
@@ -210,7 +210,7 @@ def start(key: str) -> dict:
         # 脱离 web 服务：服务重启不该带走正在跑的回填
         creationflags = getattr(subprocess, "DETACHED_PROCESS", 0)
 
-    cmd = [daemon_ctl._pythonw(), "-u", "-m", "football_lottery.cli", *spec_.cli]
+    cmd = [daemon_ctl._pythonw(), "-u", "-m", "lottery_lab.cli", *spec_.cli]
     try:
         proc = subprocess.Popen(
             cmd, cwd=str(daemon_ctl.PROJECT_ROOT), stdout=handle,

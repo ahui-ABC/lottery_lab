@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from football_lottery.models import fusion
+from lottery_lab.models import fusion
 
 
 def _synth(n: int = 400, seed: int = 1):

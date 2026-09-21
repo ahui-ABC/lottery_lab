@@ -1,7 +1,7 @@
 """覆盖概率与奖级概率测试（实现计划 T20）。"""
 import pytest
 
-from football_lottery.optimizer import probabilities as P
+from lottery_lab.optimizer import probabilities as P
 
 
 def test_coverage_sum():

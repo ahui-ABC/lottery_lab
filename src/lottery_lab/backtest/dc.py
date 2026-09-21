@@ -15,8 +15,8 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from football_lottery.backtest.metrics import logloss, brier, accuracy
-from football_lottery.models import dixon_coles
+from lottery_lab.backtest.metrics import logloss, brier, accuracy
+from lottery_lab.models import dixon_coles
 
 
 def load_matches_with_teams(conn: sqlite3.Connection) -> list[dict]:
@@ -67,7 +67,7 @@ def run(
     out_path: str = "data/reports/baseline_dc.json",
     max_train_matches: int = 1500,
 ) -> dict:
-    from football_lottery.db import store
+    from lottery_lab.db import store
     conn = store.connect(db_path)
     store.init_db(conn)
     matches = load_matches_with_teams(conn)

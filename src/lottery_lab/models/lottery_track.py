@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import json
 
-from football_lottery.collectors.lottery_history import LOTTERY_NAMES
-from football_lottery.models.lottery_predict import BET_PRICE, STRATEGY_LABELS
+from lottery_lab.collectors.lottery_history import LOTTERY_NAMES
+from lottery_lab.models.lottery_predict import BET_PRICE, STRATEGY_LABELS
 
 
 def _bets_count(raw: str | None) -> int:
@@ -84,7 +84,7 @@ def _rows(conn, lottery: str, scored: bool) -> list[dict]:
 
 def overview(conn) -> list[dict]:
     """五个彩种的摘要，供总览页。"""
-    from football_lottery.collectors.lottery_history import LOTTERIES
+    from lottery_lab.collectors.lottery_history import LOTTERIES
 
     out = []
     for code in LOTTERIES:

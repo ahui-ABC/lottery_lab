@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from football_lottery.collectors import lottery_history as lh
-from football_lottery.db import store
+from lottery_lab.collectors import lottery_history as lh
+from lottery_lab.db import store
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "lottery"
 

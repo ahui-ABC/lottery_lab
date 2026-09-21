@@ -1,7 +1,7 @@
 """walk-forward runner 测试。"""
 from dataclasses import dataclass
 from datetime import date, timedelta
-from football_lottery.backtest.runner import walk_forward, PredRecord
+from lottery_lab.backtest.runner import walk_forward, PredRecord
 
 
 def _mk_matches(n: int):

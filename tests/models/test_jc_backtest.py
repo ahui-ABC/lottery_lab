@@ -1,8 +1,8 @@
 """竞彩历史回测测试。"""
 import json
 
-from football_lottery.db import store
-from football_lottery.models import jc_backtest
+from lottery_lab.db import store
+from lottery_lab.models import jc_backtest
 
 
 def _db():

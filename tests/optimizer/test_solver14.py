@@ -2,8 +2,8 @@
 import itertools
 import pytest
 
-from football_lottery.optimizer import solver
-from football_lottery.optimizer.probabilities import p_first, p_second
+from lottery_lab.optimizer import solver
+from lottery_lab.optimizer.probabilities import p_first, p_second
 
 
 PROBS_6 = [

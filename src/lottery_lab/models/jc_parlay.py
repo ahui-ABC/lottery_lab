@@ -20,7 +20,7 @@ import sqlite3
 from datetime import datetime
 from itertools import combinations
 
-from football_lottery.models import jc_predict
+from lottery_lab.models import jc_predict
 
 RESULT_COLUMN = {
     "had": "result_had", "hhad": "result_hhad",
@@ -264,7 +264,7 @@ def recent_plans(conn: sqlite3.Connection, limit: int = 20) -> list[dict]:
     rows = list(conn.execute(
         """SELECT * FROM jc_parlay_plans
            ORDER BY plan_date DESC, pool ASC LIMIT ?""", (limit,)))
-    from football_lottery.collectors import jc_history
+    from lottery_lab.collectors import jc_history
 
     out = []
     for row in rows:

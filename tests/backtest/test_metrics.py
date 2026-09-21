@@ -1,6 +1,6 @@
 """回测指标测试。"""
 import math
-from football_lottery.backtest import metrics
+from lottery_lab.backtest import metrics
 
 
 def test_logloss_hand_computed():

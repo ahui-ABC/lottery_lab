@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from football_lottery.models import lottery_backtest as lb
+from lottery_lab.models import lottery_backtest as lb
 
 # 大乐透 2026-02-02（第 26014 期）前的奖级表：9 个奖级
 DLT_PRIZES_OLD = [
@@ -245,7 +245,7 @@ def test_summarize_mentions_multiple_comparison():
 def test_load_draws_is_chronological():
     import sqlite3
 
-    from football_lottery.db import store
+    from lottery_lab.db import store
 
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
