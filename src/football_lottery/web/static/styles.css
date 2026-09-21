@@ -80,6 +80,62 @@ nav a:hover { color: var(--text); background: var(--bg-elev-2); }
 nav a.active { color: var(--info); background: var(--info-dim); }
 nav a.brand.active { color: var(--info); background: none; }
 
+/* ---- 下拉菜单（纯 CSS，无 JS） ----------------------------------------- */
+/* 菜单标题本身就是链接（点它进该大块的主页），不是死标签 */
+
+.nav-spacer { flex: 1; }
+
+/* align-self: stretch 让 .menu 占满导航高度 —— 这样面板 top:100% 正好是
+   导航底边，鼠标从标题移到面板不会经过「谁都不属于」的缝隙而丢掉 hover */
+nav .menu {
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+nav .menu > .menu-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-mid);
+  text-decoration: none;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  transition: color .15s, background .15s;
+}
+nav .menu > .menu-label:hover { color: var(--text); background: var(--bg-elev-2); }
+nav .menu.active > .menu-label { color: var(--info); background: var(--info-dim); }
+nav .menu > .menu-label .caret { font-size: 10px; opacity: .6; }
+
+nav .menu-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 30;
+  display: none;
+  flex-direction: column;
+  min-width: 168px;
+  padding: 6px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+nav .menu:hover .menu-panel,
+nav .menu:focus-within .menu-panel { display: flex; }
+
+nav .menu-group {
+  padding: 8px 10px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+nav .menu-panel a { padding: 7px 10px; }
+
 /* 品牌：左侧色块 + 字重，避免用 emoji；是链接（回首页），所以覆盖 nav a 的样式 */
 nav a.brand {
   font-weight: 700;
@@ -409,6 +465,43 @@ details summary:hover { text-decoration: underline; }
 .ball.back  { background: var(--info-dim); color: var(--info); border-color: var(--info); }
 .ball.digit { background: var(--ok-dim);   color: var(--ok);   border-color: var(--ok); }
 .ball.plus  { background: none; border: none; color: var(--text-dim); width: 14px; }
+
+/* 数字彩总览：一彩种一卡 */
+.lottery-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+.lottery-card {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  padding: 14px 16px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color .12s, transform .12s;
+}
+.lottery-card:hover { border-color: var(--info); transform: translateY(-2px); }
+.lottery-card-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px;
+}
+.lottery-card-head strong { font-size: 15px; }
+.lottery-card-foot {
+  margin-top: 10px; font-size: 13px; color: var(--text-mid);
+}
+.lottery-card-foot b { color: var(--text); }
+.strategy-mini {
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+  margin-top: 8px; font-size: 12px; color: var(--text-dim);
+}
+.strategy-mini b { font-family: var(--mono); }
+
+/* 曲线切换器 */
+.spark-wrap { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.spark-wrap select { padding: 4px 8px; font-size: 13px; }
 
 /* 频次热力格：次数越多越暖 */
 .freq-cell { font-family: var(--mono); font-size: 12px; padding: 3px 6px; text-align: center; }

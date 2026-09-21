@@ -87,33 +87,13 @@
 
 {% block scripts %}
 <script>
+// 曲线绘制共用 __fl.renderSpark（见 static/app.js），本页只负责把数据结构喂进去
 const raw = document.getElementById("ov-timeline");
 if (raw) {
-  const points = JSON.parse(raw.textContent);
-  const svg = document.getElementById("ov-spark");
-  const legend = document.getElementById("ov-spark-legend");
-  const W = 600, H = 96, PAD = 6;
-  const vals = points.map(p => p.cumulative);
-  const min = Math.min(0, ...vals), max = Math.max(0, ...vals);
-  const span = (max - min) || 1;
-  const x = i => PAD + i * (W - PAD * 2) / (points.length - 1);
-  const y = v => H - PAD - ((v - min) / span) * (H - PAD * 2);
-  const line = points.map((p, i) => `${i ? "L" : "M"}${x(i)},${y(p.cumulative)}`).join(" ");
-  const area = `${line} L${x(points.length - 1)},${y(0)} L${x(0)},${y(0)} Z`;
-  const last = vals[vals.length - 1];
-  const color = last >= 0 ? "var(--ok)" : "var(--bad)";
-  const NS = "http://www.w3.org/2000/svg";
-  const add = (tag, attrs) => {
-    const el = document.createElementNS(NS, tag);
-    Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
-    svg.appendChild(el);
-  };
-  add("line", { x1: PAD, y1: y(0), x2: W - PAD, y2: y(0), class: "spark-zero" });
-  add("path", { d: area, fill: color, class: "spark-area" });
-  add("path", { d: line, stroke: color, class: "spark-line" });
-  legend.innerHTML = `<span>${points[0].date}</span>` +
-    `<span>累计 ¥${last.toFixed(2)}</span>` +
-    `<span>${points[points.length - 1].date}</span>`;
+  const points = JSON.parse(raw.textContent)
+    .map(p => ({ label: p.date, value: p.cumulative }));
+  __fl.renderSpark(document.getElementById("ov-spark"),
+                   document.getElementById("ov-spark-legend"), points);
 }
 </script>
 {% endblock %}

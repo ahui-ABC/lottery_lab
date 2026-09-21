@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}数字彩总览{% endblock %}
+{% block content %}
+<h2>数字彩</h2>
+<p class="hint">
+  大乐透 / 双色球 / 排列三 / 排列五 / 福彩3D 的开奖与选号记录。
+  <strong>摇奖机是独立同分布的</strong>，历史号码对下一期没有信息量 ——
+  这里的盈亏统计就是用真实发生的推荐在检验这句话，请以它为准，不要以推荐号码为准。
+</p>
+
+<div class="lottery-grid">
+{% for lot in lotteries %}
+  <a class="lottery-card" href="/lottery/{{ lot.lottery }}">
+    <div class="lottery-card-head">
+      <strong>{{ lot.name }}</strong>
+      {% if lot.latest %}
+        <span class="hint">{{ lot.latest.issue }} · {{ lot.latest.draw_date }}</span>
+      {% endif %}
+    </div>
+
+    {% if lot.latest %}
+      <div class="balls">
+        {% if lot.latest.numbers.front %}
+          {% for n in lot.latest.numbers.front %}<span class="ball front">{{ n }}</span>{% endfor %}
+          <span class="ball plus">+</span>
+          {% for n in lot.latest.numbers.back %}<span class="ball back">{{ n }}</span>{% endfor %}
+        {% else %}
+          {% for n in lot.latest.numbers.digits %}<span class="ball digit">{{ n }}</span>{% endfor %}
+        {% endif %}
+      </div>
+      <div class="lottery-card-foot">
+        已统计 <b>{{ lot.scored_issues }}</b> 期
+        {% if lot.pending %}· 待开奖 <b>{{ lot.pending }}</b>{% endif %}
+      </div>
+      {% if lot.strategies %}
+        <div class="strategy-mini">
+          {% for s in lot.strategies %}
+            <span>{{ s.label }}
+              <b class="{{ 'pos' if s.profit >= 0 else 'neg' }}">{{ s.profit | money }}</b>
+            </span>
+          {% endfor %}
+        </div>
+        <div class="hint" style="margin-top:6px">每期每策略 5 注 × 2 元</div>
+      {% else %}
+        <p class="hint" style="margin:8px 0 0">还没有已开奖的推荐记录。</p>
+      {% endif %}
+    {% else %}
+      <p class="hint" style="margin:10px 0 0">
+        库内暂无数据。先跑 <code>collect-lottery --lottery {{ lot.lottery }}</code>。
+      </p>
+    {% endif %}
+  </a>
+{% endfor %}
+</div>
+{% endblock %}

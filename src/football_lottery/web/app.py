@@ -49,6 +49,34 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+def _pct(value, digits: int = 1) -> str:
+    """模板里的比率格式化：0.753 → '75.3%'，None → '—'。"""
+    if value is None:
+        return "—"
+    try:
+        return f"{float(value) * 100:.{digits}f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _money(value, digits: int = 0) -> str:
+    """金额：负号写在 ¥ 外面（-¥2，不是 ¥-2），None → '—'。
+
+    默认不带小数 —— 用它的地方都是累计额，两位小数纯属噪音。
+    """
+    if value is None:
+        return "—"
+    try:
+        amount = abs(float(value))
+    except (TypeError, ValueError):
+        return "—"
+    return ("-¥" if float(value) < 0 else "¥") + f"{amount:.{digits}f}"
+
+
+templates.env.filters["pct"] = _pct
+templates.env.filters["money"] = _money
+
+
 def _get_conn():
     """每次请求 new conn（SQLite 本地适合）。"""
     import yaml
@@ -166,51 +194,78 @@ def _frequency_groups(history: list[dict], spec: dict, window: int = 100) -> lis
     ]
 
 
-def _lottery_context(conn) -> dict:
+def _lottery_index(conn) -> dict:
+    """数字彩总览：五类彩种各一张卡。"""
+    from football_lottery.models import lottery_track as ltk
+
+    return {"lotteries": ltk.overview(conn)}
+
+
+def _lottery_detail(conn, code: str) -> dict:
+    """单个彩种的全部页面数据。"""
     from football_lottery.collectors.lottery_history import LOTTERIES
     from football_lottery.models import lottery_predict as lp
+    from football_lottery.models import lottery_track as ltk
 
-    lotteries = []
-    for code, spec in LOTTERIES.items():
-        last = store.fetchone(conn, """
-            SELECT issue, draw_date, numbers, prizes FROM lottery_draw
-            WHERE lottery=? ORDER BY issue DESC LIMIT 1""", (code,))
-        if last is None:
-            lotteries.append({"code": code, "name": spec["name"], "latest": None,
-                              "predictions": [], "freq": [], "backtest": [],
-                              "target": None})
-            continue
-        history = lp.load_history(conn, code)
-        target = lp.next_issue(last["issue"])
-        preds = store.fetchall(conn, """
-            SELECT strategy, bets FROM lottery_prediction
-            WHERE lottery=? AND target_issue=? ORDER BY strategy""", (code, target))
-        tests = store.fetchall(conn, """
-            SELECT strategy, metrics, paired FROM lottery_backtest
-            WHERE lottery=? ORDER BY strategy""", (code,))
-        lotteries.append({
-            "code": code, "name": spec["name"],
-            "latest": {"issue": last["issue"], "draw_date": last["draw_date"],
-                       "numbers": json.loads(last["numbers"]),
-                       "prizes": json.loads(last["prizes"]) if last["prizes"] else []},
-            "target": target,
-            "predictions": [{"strategy": r["strategy"],
-                             "label": lp.STRATEGY_LABELS.get(r["strategy"], r["strategy"]),
-                             "bets": json.loads(r["bets"])} for r in preds],
-            "freq": _frequency_groups(history, spec),
-            "backtest": [{"strategy": r["strategy"],
-                          "label": lp.STRATEGY_LABELS.get(r["strategy"], r["strategy"]),
-                          "metrics": json.loads(r["metrics"]) if r["metrics"] else {},
-                          "paired": json.loads(r["paired"]) if r["paired"] else None}
-                         for r in tests],
-        })
-    return {"lotteries": lotteries}
+    spec = LOTTERIES[code]
+    detail = {"code": code, "name": spec["name"], "spec": spec, "latest": None,
+              "target": None, "predictions": [], "freq": [], "backtest": [],
+              "track": {"strategies": [], "pending": 0}, "timelines": {},
+              "recent": []}
+    last = store.fetchone(conn, """
+        SELECT issue, draw_date, numbers FROM lottery_draw
+        WHERE lottery=? ORDER BY issue DESC LIMIT 1""", (code,))
+    if last is None:
+        return detail
+
+    history = lp.load_history(conn, code)
+    target = lp.next_issue(last["issue"])
+    preds = store.fetchall(conn, """
+        SELECT strategy, bets FROM lottery_prediction
+        WHERE lottery=? AND target_issue=? ORDER BY strategy""", (code, target))
+    tests = store.fetchall(conn, """
+        SELECT strategy, metrics, paired FROM lottery_backtest
+        WHERE lottery=? ORDER BY strategy""", (code,))
+    track = ltk.summary(conn, code)
+    detail.update({
+        "latest": {"issue": last["issue"], "draw_date": last["draw_date"],
+                   "numbers": json.loads(last["numbers"])},
+        "target": target,
+        "predictions": [{"strategy": r["strategy"],
+                         "label": lp.STRATEGY_LABELS.get(r["strategy"], r["strategy"]),
+                         "bets": json.loads(r["bets"])} for r in preds],
+        "freq": _frequency_groups(history, spec),
+        "backtest": [{"strategy": r["strategy"],
+                      "label": lp.STRATEGY_LABELS.get(r["strategy"], r["strategy"]),
+                      "metrics": json.loads(r["metrics"]) if r["metrics"] else {},
+                      "paired": json.loads(r["paired"]) if r["paired"] else None}
+                     for r in tests],
+        "track": track,
+        # 五条策略各一条曲线，前端切换；数据量很小，一次给全免得来回请求
+        "timelines": {s["strategy"]: ltk.timeline(conn, code, s["strategy"])
+                      for s in track["strategies"]},
+        "recent": ltk.recent(conn, code, limit=12),
+    })
+    return detail
 
 
 @app.get("/lottery", response_class=HTMLResponse)
 def page_lottery(request: Request):
     conn = _get_conn()
-    return templates.TemplateResponse(request, "lottery.html", _lottery_context(conn))
+    return templates.TemplateResponse(request, "lottery_index.html",
+                                      _lottery_index(conn))
+
+
+@app.get("/lottery/{code}", response_class=HTMLResponse)
+def page_lottery_detail(request: Request, code: str):
+    from football_lottery.collectors.lottery_history import LOTTERIES
+
+    # 未知彩种要明确 404，不能静默回落到第一个 —— 那会让人以为在看大乐透
+    if code not in LOTTERIES:
+        raise HTTPException(status_code=404, detail=f"未知彩种：{code}")
+    conn = _get_conn()
+    return templates.TemplateResponse(request, "lottery.html",
+                                      _lottery_detail(conn, code))
 
 
 @app.get("/api/jc/plans")

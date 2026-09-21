@@ -22,8 +22,64 @@ def test_lottery_tables_created():
     assert {"lottery_draw", "lottery_prediction", "lottery_backtest"} <= names
 
 
+def test_daily_lottery_is_throttled_by_last_run_time(tmp_path, monkeypatch, capsys):
+    """守护进程每 10 分钟转一圈，daily-lottery 不能被带着一起跑。
+
+    判据是「上次预测距今多久」，所以这里直接构造 created_at 来验证：
+    刚刚跑过 → 跳过；跑过很久 → 执行。
+    """
+    from datetime import datetime, timedelta
+
+    db = tmp_path / "t.db"
+    cfg = {"db_path": str(db)}
+    conn = store.connect(str(db))
+    store.init_db(conn)
+
+    ran = []
+    monkeypatch.setattr(cli, "cmd_daily_lottery",
+                        lambda args, cfg: ran.append(1) or 0)
+
+    cli._maybe_run_daily_lottery(conn, cfg)          # 从没跑过 → 该跑
+    assert ran == [1]
+
+    conn.execute(
+        "INSERT INTO lottery_prediction(lottery, target_issue, strategy, bets, "
+        "created_at) VALUES('p3','2026001','hot','[]',?)",
+        (datetime.now().isoformat(timespec="seconds"),))
+    conn.commit()
+    cli._maybe_run_daily_lottery(conn, cfg)          # 刚跑过 → 跳过
+    assert ran == [1]
+
+    old = (datetime.now() - timedelta(hours=cli.LOTTERY_REFRESH_HOURS + 1))
+    conn.execute("UPDATE lottery_prediction SET created_at=?",
+                 (old.isoformat(timespec="seconds"),))
+    conn.commit()
+    cli._maybe_run_daily_lottery(conn, cfg)          # 超时 → 再跑
+    assert ran == [1, 1]
+    assert "daily-lottery" in capsys.readouterr().out
+
+
+def test_daily_lottery_survives_corrupt_timestamp(tmp_path, monkeypatch):
+    """created_at 坏了不能把整个采集进程卡死 —— 当作「该跑了」处理。"""
+    db = tmp_path / "t.db"
+    cfg = {"db_path": str(db)}
+    conn = store.connect(str(db))
+    store.init_db(conn)
+    conn.execute(
+        "INSERT INTO lottery_prediction(lottery, target_issue, strategy, bets, "
+        "created_at) VALUES('p3','2026001','hot','[]','坏掉的时间戳')")
+    conn.commit()
+
+    ran = []
+    monkeypatch.setattr(cli, "cmd_daily_lottery",
+                        lambda args, cfg: ran.append(1) or 0)
+    cli._maybe_run_daily_lottery(conn, cfg)
+    assert ran == [1]
+
+
 @pytest.mark.parametrize("name", ["collect-lottery", "predict-lottery",
-                                  "score-lottery", "backtest-lottery"])
+                                  "score-lottery", "backtest-lottery",
+                                  "daily-lottery"])
 def test_lottery_commands_actually_dispatch(monkeypatch, name):
     """main() 是 `if args.cmd ==` 硬分发，只加 set_defaults(func=...) 不会生效。
 

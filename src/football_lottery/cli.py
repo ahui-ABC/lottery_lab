@@ -236,6 +236,78 @@ def _maybe_run_daily_jc(conn, cfg: dict) -> None:
         print(f"[daily-jc] 失败（下一轮重试）：{exc}", file=sys.stderr, flush=True)
 
 
+# 数字彩的刷新间隔（小时）。不设固定钟点：机器在该跑的时候关机，
+# 固定钟点会整整漏掉那一天，改成「距上次跑够久就跑」下次开机自动补上。
+LOTTERY_REFRESH_HOURS = 12
+
+
+def cmd_daily_lottery(args, cfg: dict) -> int:
+    """数字彩一条龙：刷新最新开奖 → 预测下一期 → 给已开奖的预测对奖。
+
+    三步都幂等，重复跑只会刷新而不会重复记账。
+    """
+    from types import SimpleNamespace
+
+    from football_lottery.collectors import lottery_history as lh
+    from football_lottery.models import lottery_predict as lp
+
+    conn = _connect(cfg)
+    picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
+    strategies = (lp.STRATEGIES if args.strategy == "all"
+                  else tuple(args.strategy.split(",")))
+    try:
+        for lottery in picks:
+            name = lh.LOTTERY_NAMES[lottery]
+            try:
+                lh.refresh_latest(conn, lottery)
+                last = lh.latest_issue(conn, lottery)
+            except lh.RateLimited as exc:
+                print(f"{name}：接口限流，跳过（{exc}）", file=sys.stderr)
+                continue
+            if not last:
+                print(f"{name}：库内无数据，先跑 collect-lottery")
+                continue
+            target = lp.next_issue(last)
+            written = lp.save_predictions(conn, lottery, target, strategies,
+                                          args.bets, args.window, args.seed)
+            print(f"{name}：最新 {last}，已存第 {target} 期推荐（{written} 条策略）")
+    finally:
+        lh.close_client()
+
+    cmd_score_lottery(SimpleNamespace(), cfg)
+    return 0
+
+
+def _maybe_run_daily_lottery(conn, cfg: dict) -> None:
+    """watch 进程里定期跑 daily-lottery。
+
+    判据是「上次预测距今是否超过 LOTTERY_REFRESH_HOURS」—— 用 created_at 当
+    运行时间戳，不额外建状态表。失败只告警不中断采集：采集是本进程的主职。
+    """
+    from datetime import timedelta
+
+    last = conn.execute(
+        "SELECT MAX(created_at) m FROM lottery_prediction").fetchone()["m"]
+    if last:
+        try:
+            if datetime.now() - datetime.fromisoformat(last) < \
+                    timedelta(hours=LOTTERY_REFRESH_HOURS):
+                return
+        except ValueError:
+            pass                       # 时间戳坏了就跑一次，别卡死在这里
+
+    print(f"[daily-lottery] 距上次已超过 {LOTTERY_REFRESH_HOURS} 小时，开始…",
+          flush=True)
+    from types import SimpleNamespace
+
+    try:
+        cmd_daily_lottery(SimpleNamespace(lottery="all", strategy="all", bets=5,
+                                          window=100, seed=20260921), cfg)
+    except Exception as exc:                       # noqa: BLE001 - 不能让采集挂掉
+        print(f"[daily-lottery] 失败（下一轮重试）：{exc}", file=sys.stderr,
+              flush=True)
+
+
 def cmd_collect_odds(args, cfg: dict) -> int:
     """采集竞彩胜平负赔率；--watch 时按固定间隔轮询并只在赔率变化时追加快照。"""
     from football_lottery.collectors import sporttery
@@ -273,6 +345,7 @@ def cmd_collect_odds(args, cfg: dict) -> int:
                 # watch 模式不因单次失败退出
                 print(f"采集失败（下轮重试）：{exc}", file=sys.stderr, flush=True)
             _maybe_run_daily_jc(conn, cfg)
+            _maybe_run_daily_lottery(conn, cfg)
             _time.sleep(interval)
     except KeyboardInterrupt:
         print("\n已停止 watch。", flush=True)
@@ -950,6 +1023,16 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("score-lottery", help="给已开奖的数字彩预测回填命中与奖金")
     s.set_defaults(func=cmd_score_lottery)
 
+    # daily-lottery
+    s = sub.add_parser("daily-lottery",
+                       help="数字彩一条龙：刷新开奖 + 预测下一期 + 对奖")
+    s.add_argument("--lottery", default="all")
+    s.add_argument("--strategy", default="all")
+    s.add_argument("--bets", type=int, default=5)
+    s.add_argument("--window", type=int, default=100)
+    s.add_argument("--seed", type=int, default=20260921)
+    s.set_defaults(func=cmd_daily_lottery)
+
     # backtest-lottery
     s = sub.add_parser("backtest-lottery", help="数字彩逐期走查回测与配对显著性")
     s.add_argument("--lottery", default="all")
@@ -1039,6 +1122,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_predict_lottery(args, cfg)
     if args.cmd == "score-lottery":
         return cmd_score_lottery(args, cfg)
+    if args.cmd == "daily-lottery":
+        return cmd_daily_lottery(args, cfg)
     if args.cmd == "backtest-lottery":
         return cmd_backtest_lottery(args, cfg)
     if args.cmd == "serve":

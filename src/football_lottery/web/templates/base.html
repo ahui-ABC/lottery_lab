@@ -6,17 +6,40 @@
 <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
+{# 当前页高亮由服务端渲染，避免前端 JS 判断导致的闪烁 #}
+{% set path = request.url.path if request else '' %}
+{# 「竞彩」菜单下的全部页面。菜单标题本身也高亮，让用户知道自己在哪一大块 #}
+{% set football_paths = ['/predict', '/plan', '/history', '/backtest', '/jc'] %}
 <nav>
-  {# 当前页高亮由服务端渲染，避免前端 JS 判断导致的闪烁 #}
-  {% set path = request.url.path if request else '' %}
   <a class="brand{% if path == '/' %} active{% endif %}" href="/">足彩分析</a>
-  <a href="/predict"  {% if path == '/predict'  %}class="active"{% endif %}>本期预测</a>
-  <a href="/plan"     {% if path == '/plan'     %}class="active"{% endif %}>推荐方案</a>
-  <a href="/history"  {% if path == '/history'  %}class="active"{% endif %}>历史战绩</a>
-  <a href="/jc"       {% if path == '/jc'       %}class="active"{% endif %}>竞彩方案</a>
-  <a href="/backtest" {% if path == '/backtest' %}class="active"{% endif %}>回测报告</a>
-  <a href="/lottery"  {% if path == '/lottery'  %}class="active"{% endif %}>数字彩</a>
-  <a href="/collect"  {% if path == '/collect'  %}class="active"{% endif %}>采集</a>
+
+  <div class="menu{% if path in football_paths %} active{% endif %}">
+    <a class="menu-label" href="/predict">竞彩<span class="caret">▾</span></a>
+    <div class="menu-panel">
+      <div class="menu-group">胜负彩</div>
+      <a href="/predict"  {% if path == '/predict'  %}class="active"{% endif %}>本期预测</a>
+      <a href="/plan"     {% if path == '/plan'     %}class="active"{% endif %}>推荐方案</a>
+      <a href="/history"  {% if path == '/history'  %}class="active"{% endif %}>历史战绩</a>
+      <a href="/backtest" {% if path == '/backtest' %}class="active"{% endif %}>回测报告</a>
+      <div class="menu-group">竞彩</div>
+      <a href="/jc"       {% if path == '/jc'       %}class="active"{% endif %}>竞彩方案</a>
+    </div>
+  </div>
+
+  <div class="menu{% if path.startswith('/lottery') %} active{% endif %}">
+    <a class="menu-label" href="/lottery">数字彩<span class="caret">▾</span></a>
+    <div class="menu-panel">
+      <a href="/lottery"     {% if path == '/lottery'     %}class="active"{% endif %}>总览</a>
+      <a href="/lottery/dlt" {% if path == '/lottery/dlt' %}class="active"{% endif %}>大乐透</a>
+      <a href="/lottery/ssq" {% if path == '/lottery/ssq' %}class="active"{% endif %}>双色球</a>
+      <a href="/lottery/p3"  {% if path == '/lottery/p3'  %}class="active"{% endif %}>排列三</a>
+      <a href="/lottery/p5"  {% if path == '/lottery/p5'  %}class="active"{% endif %}>排列五</a>
+      <a href="/lottery/3d"  {% if path == '/lottery/3d'  %}class="active"{% endif %}>福彩3D</a>
+    </div>
+  </div>
+
+  <span class="nav-spacer"></span>
+  <a href="/collect" {% if path == '/collect' %}class="active"{% endif %}>采集</a>
 </nav>
 <main>{% block content %}{% endblock %}</main>
 <script src="/static/app.js"></script>

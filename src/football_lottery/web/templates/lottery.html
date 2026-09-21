@@ -1,38 +1,36 @@
 {% extends "base.html" %}
-{% block title %}数字彩{% endblock %}
+{% block title %}{{ name }}{% endblock %}
 {% block content %}
-<h2>数字彩</h2>
+<h2>{{ name }}</h2>
 <p class="hint">
-  大乐透 / 双色球 / 排列三 / 排列五 / 福彩3D 的历史开奖与选号推荐。
-  <strong>摇奖机是独立同分布的</strong>：下面每条策略的命中率，长期看都与随机选号
-  没有区别。页面底部的回测表就是用真实历史检验这句话的 —— 请以它为准，不要以推荐号码为准。
+  <a href="/lottery">← 数字彩总览</a>
+  {% if latest %}最新 <strong>{{ latest.issue }}</strong> 期 · {{ latest.draw_date }}{% endif %}
 </p>
 
-{% for lot in lotteries %}
-<h3>{{ lot.name }}{% if lot.latest %}（最新 {{ lot.latest.issue }} 期 · {{ lot.latest.draw_date }}）{% endif %}</h3>
-
-{% if not lot.latest %}
-<p class="hint">库内暂无数据。先跑 <code>collect-lottery --lottery {{ lot.code }}</code>。</p>
+{% if not latest %}
+<p class="hint">库内暂无数据。先跑 <code>collect-lottery --lottery {{ code }}</code>。</p>
 {% else %}
 
 <div class="card">
   <div class="balls">
-    {% if lot.latest.numbers.front %}
-      {% for n in lot.latest.numbers.front %}<span class="ball front">{{ n }}</span>{% endfor %}
+    {% if latest.numbers.front %}
+      {% for n in latest.numbers.front %}<span class="ball front">{{ n }}</span>{% endfor %}
       <span class="ball plus">+</span>
-      {% for n in lot.latest.numbers.back %}<span class="ball back">{{ n }}</span>{% endfor %}
+      {% for n in latest.numbers.back %}<span class="ball back">{{ n }}</span>{% endfor %}
     {% else %}
-      {% for n in lot.latest.numbers.digits %}<span class="ball digit">{{ n }}</span>{% endfor %}
+      {% for n in latest.numbers.digits %}<span class="ball digit">{{ n }}</span>{% endfor %}
     {% endif %}
   </div>
 </div>
 
-{% if lot.predictions %}
-<p class="hint">第 <strong>{{ lot.target }}</strong> 期推荐（每注 2 元）：</p>
+<h3>下一期推荐（第 {{ target }} 期）</h3>
+{% if predictions %}
+<p class="hint">每注 2 元；五条策略各买各的，谁都不比谁强 —— 回测和下面的实际战绩都在说这件事。</p>
+<div class="table-scroll">
 <table>
   <thead><tr><th>策略</th><th>推荐号码</th></tr></thead>
   <tbody>
-  {% for p in lot.predictions %}
+  {% for p in predictions %}
     <tr>
       <td>{{ p.label }}</td>
       <td>
@@ -52,13 +50,142 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% else %}
-<p class="hint">还没有第 {{ lot.target }} 期的推荐。跑 <code>predict-lottery --lottery {{ lot.code }}</code>。</p>
+<p class="hint">还没有第 {{ target }} 期的推荐。跑 <code>predict-lottery --lottery {{ code }}</code>。</p>
+{% endif %}
+
+<h3>实际盈亏</h3>
+{% if track.strategies %}
+<p class="hint">
+  只统计<strong>已开奖</strong>的期次{% if track.pending %}（还有 {{ track.pending }} 期待开奖，不计入）{% endif %}。
+  投入按每期实际发出的注数 × 2 元算。
+</p>
+<div class="table-scroll">
+<table>
+  <thead><tr>
+    <th>策略</th><th>期数</th><th>注数</th><th>投入</th><th>返还</th>
+    <th>盈亏</th><th>返还率</th><th>中奖期数</th>
+  </tr></thead>
+  <tbody>
+  {% for s in track.strategies %}
+    <tr>
+      <td>{{ s.label }}</td>
+      <td>{{ s.issues }}</td>
+      <td>{{ s.bets }}</td>
+      <td>{{ s.invested | money }}</td>
+      <td>{{ s.returned | money }}</td>
+      <td class="{{ 'pos' if s.profit >= 0 else 'neg' }}">{{ s.profit | money }}</td>
+      <td>{{ s.return_rate | pct }}</td>
+      <td>{{ s.win_issues }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+
+<div class="spark-wrap">
+  <label class="hint" for="spark-strategy">累计盈亏曲线 ·</label>
+  <select id="spark-strategy">
+    {% for s in track.strategies %}
+      <option value="{{ s.strategy }}">{{ s.label }}</option>
+    {% endfor %}
+  </select>
+</div>
+<svg class="spark" id="track-spark" viewBox="0 0 600 96"
+     preserveAspectRatio="none" role="img" aria-label="累计盈亏曲线"></svg>
+<div class="spark-legend" id="track-spark-legend"></div>
+<script id="track-timelines" type="application/json">{{ timelines | tojson }}</script>
+{% else %}
+<p class="hint">
+  还没有已开奖的推荐记录。推荐每天自动生成，开奖后自动对奖 ——
+  攒满几期这里就会有数据。手动跑：<code>daily-lottery</code>。
+</p>
+{% endif %}
+
+{% if recent %}
+<h3>最近几期明细</h3>
+<div class="table-scroll">
+<table>
+  <thead><tr><th>期号</th><th>开奖号码</th><th>策略</th><th>投入</th><th>返还</th><th>盈亏</th></tr></thead>
+  <tbody>
+  {% for row in recent %}
+    {% for s in row.strategies %}
+    <tr>
+      {% if loop.first %}
+        <td rowspan="{{ row.strategies | length }}">{{ row.issue }}</td>
+        <td rowspan="{{ row.strategies | length }}">
+          {% if row.numbers %}
+            {% if row.numbers.front %}
+              {{ row.numbers.front | join(" ") }} + {{ row.numbers.back | join(" ") }}
+            {% else %}
+              {{ row.numbers.digits | join("") }}
+            {% endif %}
+          {% else %}<span class="hint">未开奖</span>{% endif %}
+        </td>
+      {% endif %}
+      <td>{{ s.label }}</td>
+      <td>{{ s.invested | money }}</td>
+      {% if s.pending %}
+        <td colspan="2"><span class="pill info">待开奖</span></td>
+      {% else %}
+        <td>{{ s.returned | money }}</td>
+        <td class="{{ 'pos' if s.profit >= 0 else 'neg' }}">{{ s.profit | money }}</td>
+      {% endif %}
+    </tr>
+    {% endfor %}
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+
+<h3>历史回测</h3>
+{% if backtest %}
+<details>
+  <summary>逐期走查结果（每期 5 注 × 2 元，与随机选号做同期配对检验）</summary>
+  <div class="table-scroll">
+  <table>
+    <thead><tr>
+      <th>策略</th><th>期数</th><th>投入</th><th>返还</th><th>返还率</th>
+      <th>中奖期占比</th><th>vs 随机 p 值</th>
+    </tr></thead>
+    <tbody>
+    {% for row in backtest %}
+      <tr>
+        <td>{{ row.label }}</td>
+        <td>{{ row.metrics.draws }}</td>
+        {# 括号不能省：`|` 比 `or` 结合得紧，不括起来过滤器会被绕过 #}
+        <td>{{ (row.metrics.invested or 0) | money }}</td>
+        <td>{{ (row.metrics.returned or 0) | money }}</td>
+        <td>{{ row.metrics.return_rate | pct }}</td>
+        <td>{{ row.metrics.win_rate | pct }}</td>
+        <td>
+          {% if row.strategy == "random" %}<span class="hint">基线</span>
+          {% elif row.paired %}
+            p={{ "%.3f" | format(row.paired.p) }}
+            {% if row.paired.beats_random %}<span class="ok">显著</span>
+            {% else %}<span class="hint">无差异</span>{% endif %}
+          {% else %}<span class="hint">—</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="hint">
+    「vs 随机 p 值」是同一期上「该策略收益 − 随机收益」的配对 t 检验。
+    p &gt; 0.05 表示两者不可区分 —— 对摇奖机而言这是预期结果。
+    <br>若某策略显示「显著」，请先怀疑回测代码有泄漏，而不是号码真的能算出来。
+  </p>
+</details>
+{% else %}
+<p class="hint">还没有回测结果。跑 <code>backtest-lottery --lottery {{ code }}</code>。</p>
 {% endif %}
 
 <details>
   <summary>近 100 期频次与遗漏</summary>
-  {% for group in lot.freq %}
+  {% for group in freq %}
   <p class="hint">{{ group.zone }}</p>
   <div class="table-scroll">
   <table>
@@ -77,48 +204,29 @@
   {% endfor %}
 </details>
 
-{% if lot.backtest %}
-<details open>
-  <summary>回测结果（逐期走查，每注 2 元）</summary>
-  <div class="table-scroll">
-  <table>
-    <thead><tr>
-      <th>策略</th><th>期数</th><th>投入</th><th>返还</th><th>返还率</th>
-      <th>中奖期占比</th><th>vs 随机 p 值</th>
-    </tr></thead>
-    <tbody>
-    {% for row in lot.backtest %}
-      <tr>
-        <td>{{ row.label }}</td>
-        <td>{{ row.metrics.draws }}</td>
-        <td>¥{{ "%.0f" | format(row.metrics.invested or 0) }}</td>
-        <td>¥{{ "%.0f" | format(row.metrics.returned or 0) }}</td>
-        <td>{{ "%.1f%%" | format((row.metrics.return_rate or 0) * 100) }}</td>
-        <td>{{ "%.1f%%" | format((row.metrics.win_rate or 0) * 100) }}</td>
-        <td>
-          {% if row.strategy == "random" %}<span class="hint">基线</span>
-          {% elif row.paired %}
-            p={{ "%.3f" | format(row.paired.p) }}
-            {% if row.paired.beats_random %}<span class="ok">显著</span>
-            {% else %}<span class="hint">无差异</span>{% endif %}
-          {% else %}<span class="hint">—</span>{% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  </div>
-  <p class="hint">
-    「vs 随机 p 值」是同一期上「该策略收益 − 随机收益」的配对 t 检验。
-    p &gt; 0.05 表示两者不可区分 —— 对摇奖机而言这是预期结果。
-    同时跑了多条策略，α=0.05 下每 20 次检验平均出现一次假显著。
-    <br>若某策略显示「显著」，请先怀疑回测代码有泄漏，而不是号码真的能算出来。
-  </p>
-</details>
-{% else %}
-<p class="hint">还没有回测结果。跑 <code>backtest-lottery --lottery {{ lot.code }}</code>。</p>
 {% endif %}
+{% endblock %}
 
-{% endif %}
-{% endfor %}
+{% block scripts %}
+<script>
+const rawTimelines = document.getElementById("track-timelines");
+if (rawTimelines) {
+  const timelines = JSON.parse(rawTimelines.textContent);
+  const select = document.getElementById("spark-strategy");
+  const svg = document.getElementById("track-spark");
+  const legend = document.getElementById("track-spark-legend");
+
+  const draw = (strategy) => {
+    const points = (timelines[strategy] || []).map(p => ({
+      label: p.date, value: p.cumulative,
+    }));
+    __fl.renderSpark(svg, legend, points, {
+      emptyText: "这条策略还没有已开奖的期次，攒满 2 期就能画出曲线",
+    });
+  };
+
+  select.addEventListener("change", () => draw(select.value));
+  draw(select.value);
+}
+</script>
 {% endblock %}
