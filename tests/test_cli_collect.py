@@ -243,7 +243,11 @@ def test_maybe_run_daily_football_fires_when_a_period_is_missing_its_draw(
 
 def test_maybe_run_daily_football_stays_quiet_once_everything_is_in(
         tmp_path, monkeypatch, capsys):
-    """全部期次都有开奖记录时不该白跑一趟（采集要发网络请求）。"""
+    """已开奖且没有方案时不该发网络请求。
+
+    注意判据是「有没有发请求」而不是「有没有输出」—— 对奖是纯本地的，
+    会在有新开奖时正常跑并打印，那是它该做的事。
+    """
     from datetime import date, timedelta
     from lottery_lab import cli
     from lottery_lab.db import store
@@ -259,8 +263,7 @@ def test_maybe_run_daily_football_stays_quiet_once_everything_is_in(
     cli._maybe_run_daily_football(conn, cfg)
     conn.close()
 
-    assert called == []
-    assert capsys.readouterr().out == ""
+    assert called == [], "开奖已在库里，不该再发网络请求"
 
 
 def test_maybe_run_daily_football_ignores_ancient_gaps(
@@ -283,3 +286,39 @@ def test_maybe_run_daily_football_ignores_ancient_gaps(
     conn.close()
 
     assert called == []
+
+
+def test_maybe_run_daily_football_scores_after_the_draw_was_已_earlier(
+        tmp_path, monkeypatch):
+    """开奖记录已存在时仍要跑对奖。
+
+    这是「中奖注数恒为 0」的根因：对奖原先只在采集开奖的同一分支里跑，
+    而开奖若由别处（手动命令 / 采集页按钮）补齐，对奖就永远轮不到。
+    没中奖和对过奖但没中在库里长得一样，所以判据必须是「近期开过奖」，
+    不能是「有没有 winnings 记录」。
+    """
+    from datetime import date, timedelta
+    from lottery_lab import cli
+    from lottery_lab.db import store
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    cfg = _football_env(tmp_path, monkeypatch, [("26131", yesterday, True)])
+    conn = store.connect(cfg["db_path"])
+    pid = conn.execute("SELECT id FROM periods WHERE period_no='26131'").fetchone()["id"]
+    conn.execute("INSERT INTO plans(period_id, game_type, objective, budget, "
+                 "notes_count, legs_json, created_at) VALUES(?,?,?,?,?,?,?)",
+                 (pid, "r9", "first", 32, 16, "[]", "2026-09-20 08:00:00"))
+    conn.commit()
+    conn.close()
+
+    called = []
+    monkeypatch.setattr(cli, "cmd_collect_draws",
+                        lambda args, cfg: called.append("draws") or 0)
+    monkeypatch.setattr(cli, "cmd_check_draw",
+                        lambda args, cfg: called.append("check") or 0)
+
+    conn = store.connect(cfg["db_path"])
+    cli._maybe_run_daily_football(conn, cfg)
+    conn.close()
+
+    assert called == ["check"], "开奖已在库里，就不该再发网络请求；但有方案就得对奖"

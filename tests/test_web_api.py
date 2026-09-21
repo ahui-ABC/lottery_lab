@@ -124,3 +124,58 @@ def test_predict_exposes_unmapped_matches_and_components(monkeypatch):
     # 期次是 historical，故先出现 stale_period 提示，再是未映射提示
     assert [w["type"] for w in result["warnings"]] == ["stale_period", "unmapped_fixture"]
     assert result["matches"][0]["dc"] is None
+
+
+def test_history_legs_detail_marks_each_match_hit_or_miss(monkeypatch):
+    """历史战绩弹框要能标出哪场中了哪场错了。
+
+    只列当时的选项、不给实际赛果，用户根本看不出错在哪 —— 这正是之前的问题。
+    命中判定必须与计奖用同一条规则（winnings._covered），否则页面显示 ✓
+    而账上没钱，或者反过来。
+    """
+    import json as _json
+    import sqlite3
+    from lottery_lab.db import store
+    from lottery_lab.web import app as web_app
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    store.init_db(conn)
+    conn.execute("INSERT INTO periods(id, period_no, status, draw_date) VALUES(1,'26131','historical','2026-09-21')")
+    for seq, (home, away) in enumerate(
+            [("A", "B"), ("C", "D"), ("E", "F")], start=1):
+        conn.execute("INSERT INTO period_matches(period_id, seq, home_name_cn, away_name_cn) "
+                     "VALUES(1,?,?,?)", (seq, home, away))
+    # 第 1 场通配（推迟未补赛）、第 2 场真中、第 3 场未中
+    conn.execute("INSERT INTO draw_results(period_id, results_json, prizes_json) VALUES(1,?,?)",
+                 ("*,3,0", "{}"))
+    conn.commit()
+    monkeypatch.setattr(web_app, "_get_conn", lambda: conn)
+
+    detail = web_app._legs_detail(conn, 1, [["3"], ["3"], ["3"]])
+    by_seq = {d["seq"]: d for d in detail}
+
+    assert by_seq[1]["hit"] is True, "通配场次对任意选择都算命中"
+    assert by_seq[1]["actual_label"] == "推迟"
+    assert by_seq[2]["hit"] is True
+    assert by_seq[3]["hit"] is False
+    assert by_seq[3]["actual_label"] == "负"
+
+
+def test_history_legs_detail_says_pending_before_the_draw(monkeypatch):
+    """还没开奖时 hit 必须是 None，页面据此显示「未开奖」而不是假装没中。"""
+    import sqlite3
+    from lottery_lab.db import store
+    from lottery_lab.web import app as web_app
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    store.init_db(conn)
+    conn.execute("INSERT INTO periods(id, period_no, status, draw_date) VALUES(1,'26132','current','2026-09-26')")
+    conn.execute("INSERT INTO period_matches(period_id, seq, home_name_cn, away_name_cn) "
+                 "VALUES(1,1,'A','B')")
+    conn.commit()
+
+    detail = web_app._legs_detail(conn, 1, [["3"]])
+    assert detail[0]["hit"] is None
+    assert detail[0]["actual"] is None

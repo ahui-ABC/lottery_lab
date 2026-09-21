@@ -285,31 +285,49 @@ FOOTBALL_LOOKBACK_DAYS = 7
 
 
 def _maybe_run_daily_football(conn, cfg: dict) -> None:
-    """胜负彩开奖采集与对奖：有「已过开奖日却还没有开奖记录」的期次时才跑。
+    """胜负彩：补开奖记录 + 对奖。
 
-    判据是**数据状态**而不是钟点 —— 上游什么时候出结果我们不知道，
-    但「过了开奖日却没有记录」是明确信号，抓到一次就把整段补齐。
+    两件事的触发条件**不一样**，不能合成一个：
 
-    这个环节以前只存在于手动按钮里，守护进程完全没管，结果就是开奖出来了
-    也没人去取，页面上一直显示「待开奖」。
+    1. **采集开奖**（要发网络请求）—— 只在「已过开奖日却还没有开奖记录」时才做。
+       上游什么时候出结果我们不知道，但「过了开奖日却没有记录」是明确信号，
+       抓到一次就把整段补齐。
+    2. **对奖**（纯本地、幂等）—— 只要有近期开奖的期次就跑。不能用「有没有
+       winnings 记录」判断要不要对奖：**没中奖和对过奖但没中，在库里长得一模一样**
+       （两种情况 winnings 都没有行）。所以按「近期开过奖」这个时间条件来跑。
+
+    这个环节以前只存在于手动按钮里，守护进程完全没管：开奖出来了没人取，
+    取到了也没人对奖，页面就一直显示「待开奖」、中奖注数恒为 0。
     """
     from datetime import date, timedelta
     from types import SimpleNamespace
 
     today = date.today()
     since = (today - timedelta(days=FOOTBALL_LOOKBACK_DAYS)).isoformat()
+
     pending = conn.execute(
         """SELECT COUNT(*) FROM periods p
            WHERE p.status='historical' AND p.draw_date >= ? AND p.draw_date <= ?
              AND NOT EXISTS (SELECT 1 FROM draw_results d WHERE d.period_id = p.id)""",
         (since, today.isoformat())).fetchone()[0]
-    if not pending:
+    # 要限定「这一期有方案」：否则每期开奖后的 7 天里，每一轮（10 分钟）
+    # 都会把全部期次重算一遍，日志也被刷屏。没有方案的期次根本无从对奖。
+    to_score = conn.execute(
+        """SELECT COUNT(DISTINCT p.id) FROM periods p
+             JOIN draw_results d ON d.period_id = p.id
+             JOIN plans pl ON pl.period_id = p.id
+            WHERE p.draw_date >= ? AND p.draw_date <= ?""",
+        (since, today.isoformat())).fetchone()[0]
+    if not pending and not to_score:
         return
 
-    print(f"[daily-football] 有 {pending} 期已过开奖日但无开奖记录，开始采集…", flush=True)
     try:
-        cmd_collect_draws(SimpleNamespace(file=None, years=4), cfg)
-        cmd_check_draw(SimpleNamespace(period=None), cfg)
+        if pending:
+            print(f"[daily-football] 有 {pending} 期已过开奖日但无开奖记录，采集…",
+                  flush=True)
+            cmd_collect_draws(SimpleNamespace(file=None, years=4), cfg)
+        if pending or to_score:
+            cmd_check_draw(SimpleNamespace(period=None), cfg)
     except Exception as exc:                       # noqa: BLE001 - 不能让采集挂掉
         print(f"[daily-football] 失败（下一轮重试）：{exc}", file=sys.stderr, flush=True)
 

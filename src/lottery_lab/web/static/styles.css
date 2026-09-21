@@ -277,6 +277,10 @@ tbody tr:last-child { border-bottom: none; }
   padding: 6px 14px 6px 0;
 }
 
+/* 历史战绩弹框：按对错给整行着色，扫一眼就知道错在哪几场 */
+.hist-legs tr.leg-hit  td { background: var(--ok-dim); }
+.hist-legs tr.leg-miss td { background: var(--bad-dim); }
+
 /* ---- 状态与标记 -------------------------------------------------------- */
 .ok, .mapped   { color: var(--ok);   font-weight: 600; }
 .bad, .warning { color: var(--warn); font-weight: 600; }

@@ -557,12 +557,18 @@ def api_teams(q: str | None = None):
 
 
 def _legs_detail(conn, period_id, legs) -> list[dict]:
-    """每场一行：队名 + 中文胜平负（双选/三选并列在同一行，不展开）。
+    """每场一行：队名 + 中文胜平负 + 实际赛果与是否命中。
+
+    带赛果是为了让历史战绩的弹框能标出「哪场中了哪场错了」—— 只列当时的选项，
+    用户看不出错在哪。命中判定统一走 `winnings._covered`，保证页面上的 ✓/✗
+    与真正参与计奖的规则**完全一致**（尤其 `*` 通配场次的处理）。
 
     兼容两种 legs 形态：
       - sfc14: [[...], ...] 按序号 1..14 对应
       - r9:    {"selected": [0-based idx], "legs": [[...]]} 只展示选中的场次
     """
+    from lottery_lab import winnings as W
+
     if period_id is None:
         return []
 
@@ -573,6 +579,10 @@ def _legs_detail(conn, period_id, legs) -> list[dict]:
         (period_id,),
     ):
         name_by_seq[row["seq"]] = (row["home_name_cn"], row["away_name_cn"])
+
+    draw = store.fetchone(
+        conn, "SELECT results_json FROM draw_results WHERE period_id=?", (period_id,))
+    results = ([x.strip() for x in draw["results_json"].split(",")] if draw else [])
 
     if isinstance(legs, dict):
         pairs = [(int(i) + 1, leg)
@@ -586,12 +596,18 @@ def _legs_detail(conn, period_id, legs) -> list[dict]:
         if not selection:
             continue
         home, away = name_by_seq.get(seq, (None, None))
+        actual = results[seq - 1] if 0 < seq <= len(results) else None
         out.append({
             "seq": seq,
             "home": home,
             "away": away,
             "selection": selection,
             "labels": [OUTCOME_LABELS.get(x, x) for x in selection],
+            "actual": actual,
+            "actual_label": ("推迟" if actual == W.WILDCARD
+                             else OUTCOME_LABELS.get(actual, actual)),
+            # 未开奖时是 None，页面据此显示「待定」而不是假装没中
+            "hit": W._covered(actual, selection) if actual else None,
         })
     return out
 

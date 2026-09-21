@@ -32,10 +32,20 @@ document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal()
 
 const fmtPct = p => p == null ? "-" : (p * 100).toFixed(2) + "%";
 
-// 与「推荐方案」页同一格式：每场一行，队名 + 中文胜平负
+// 每场一行：队名 + 当时的选项 + 实际赛果与对错
 function renderLegsTable(detail) {
   const table = document.createElement("table");
   table.className = "hist-legs";
+  // 带上表头：第四列是「实际赛果 + 对错」，没表头看不出那是什么
+  const thead = document.createElement("thead");
+  const htr = document.createElement("tr");
+  ["#", "对阵", "选择", "实际结果"].forEach(text => {
+    const th = document.createElement("th");
+    th.textContent = text;
+    htr.appendChild(th);
+  });
+  thead.appendChild(htr);
+  table.appendChild(thead);
   detail.forEach(row => {
     const tr = document.createElement("tr");
     const seq = document.createElement("td");
@@ -47,7 +57,18 @@ function renderLegsTable(detail) {
     const pick = document.createElement("td");
     pick.className = "legs-pick" + (row.labels.length > 1 ? " legs-pick-multi" : "");
     pick.textContent = row.labels.join("");
-    tr.append(seq, teams, pick);
+    // 整行按对错着色，扫一眼就知道错在哪几场
+    if (row.hit === true) tr.className = "leg-hit";
+    else if (row.hit === false) tr.className = "leg-miss";
+    const result = document.createElement("td");
+    if (row.actual == null) {
+      result.className = "hint";
+      result.textContent = "未开奖";
+    } else {
+      result.className = row.hit ? "ok" : "bad";
+      result.textContent = `${row.actual_label} ${row.hit ? "✓" : "✗"}`;
+    }
+    tr.append(seq, teams, pick, result);
     table.appendChild(tr);
   });
   return table;
