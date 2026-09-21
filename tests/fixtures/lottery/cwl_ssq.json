@@ -1,0 +1,61 @@
+{
+ "name": "双色球",
+ "code": "2020001",
+ "detailsLink": "/c/2020/01/02/462108.shtml",
+ "videoLink": "/c/2020/01/02/462107.shtml",
+ "date": "2020-01-02(四)",
+ "week": "四",
+ "red": "02,15,23,26,29,30",
+ "blue": "02",
+ "blue2": "",
+ "sales": "388311860",
+ "poolmoney": "939054504",
+ "content": "河南1注,湖北1注,四川2注,共4注。",
+ "addmoney": "",
+ "addmoney2": "",
+ "msg": "",
+ "z2add": "",
+ "m2add": "",
+ "specialRuleInfo": "",
+ "prizeSpecialInfo": "",
+ "compLimitInfo": "",
+ "fyjCount": "",
+ "fyjMoney": "",
+ "prizegrades": [
+  {
+   "type": 1,
+   "typenum": "4",
+   "typemoney": "10000000"
+  },
+  {
+   "type": 2,
+   "typenum": "113",
+   "typemoney": "275836"
+  },
+  {
+   "type": 3,
+   "typenum": "1002",
+   "typemoney": "3000"
+  },
+  {
+   "type": 4,
+   "typenum": "57520",
+   "typemoney": "200"
+  },
+  {
+   "type": 5,
+   "typenum": "1191091",
+   "typemoney": "10"
+  },
+  {
+   "type": 6,
+   "typenum": "7834739",
+   "typemoney": "5"
+  },
+  {
+   "type": 7,
+   "typenum": "",
+   "typemoney": ""
+  }
+ ]
+}

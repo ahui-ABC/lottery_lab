@@ -44,7 +44,10 @@ def nll(predict_fn, market: np.ndarray, dc: np.ndarray, y: np.ndarray) -> float:
 class Fusion:
     """按 tier 路由：market 单路透传；2/3 路用对数概率加权。"""
 
-    def __init__(self):
+    def __init__(self, mode: str = "full"):
+        if mode not in {"full", "market_primary"}:
+            raise ValueError("fusion mode must be 'full' or 'market_primary'")
+        self.mode = mode
         self.weights: dict[str, np.ndarray] = {}
         self.temperature: float = 1.0
 
@@ -56,26 +59,21 @@ class Fusion:
         y = np.asarray(data["y"])
         if tier is None:
             tier = self._infer_tier(data)
-        if tier == "market":
-            self.weights["market"] = np.array([1.0])
+        keys = self._keys_for_tier(tier)
+        if not keys:
             return self
-        if tier == "market+dc":
-            w = self._fit_logavg(y, np.log(np.maximum(data["market"], 1e-9)),
-                                 np.log(np.maximum(data["dc"], 1e-9)))
-            self.weights["market+dc"] = w
-        elif tier == "all":
-            w = self._fit_logavg(
-                y,
-                np.log(np.maximum(data["market"], 1e-9)),
-                np.log(np.maximum(data["dc"], 1e-9)),
-                np.log(np.maximum(data["gbdt"], 1e-9)),
+        arrays = [np.asarray(data[k], dtype=float) for k in keys]
+        if len(arrays) == 1:
+            self.weights[tier] = np.array([1.0])
+        else:
+            self.weights[tier] = self._fit_logavg(
+                y, *(np.log(np.maximum(arr, 1e-9)) for arr in arrays)
             )
-            self.weights["all"] = w
         return self
 
     @staticmethod
     def _infer_tier(data: dict) -> str:
-        m = "market" in data
+        m = "market" in data and data["market"] is not None
         d = "dc" in data and data["dc"] is not None
         g = "gbdt" in data and data["gbdt"] is not None
         parts = []
@@ -83,6 +81,18 @@ class Fusion:
         if d: parts.append("dc")
         if g: parts.append("gbdt")
         return "+".join(parts)
+
+    @staticmethod
+    def _keys_for_tier(tier_name: str) -> tuple[str, ...]:
+        return {
+            "market": ("market",),
+            "dc": ("dc",),
+            "gbdt": ("gbdt",),
+            "market+dc": ("market", "dc"),
+            "market+gbdt": ("market", "gbdt"),
+            "dc+gbdt": ("dc", "gbdt"),
+            "all": ("market", "dc", "gbdt"),
+        }.get(tier_name, ())
 
     @staticmethod
     def _fit_logavg(y: np.ndarray, *log_p_list: np.ndarray) -> np.ndarray:
@@ -101,26 +111,22 @@ class Fusion:
         return w / w.sum()
 
     def predict(self, probs: dict) -> list[float]:
-        t = tier(probs)
-        if t == "market" and probs["market"] is not None:
+        if self.mode == "market_primary" and probs.get("market") is not None:
             out = np.asarray(probs["market"], dtype=float)
-        elif t == "market+dc":
-            w = self.weights.get("market+dc", np.array([0.5, 0.5]))
-            mix = w[0] * np.log(np.maximum(probs["market"], 1e-9)) + \
-                  w[1] * np.log(np.maximum(probs["dc"], 1e-9))
-            out = _softmax(mix)
-        elif t == "all":
-            w = self.weights.get("all", np.array([1 / 3] * 3))
-            mix = sum(w[i] * np.log(np.maximum(probs[k], 1e-9))
-                      for i, k in enumerate(["market", "dc", "gbdt"]))
-            out = _softmax(mix)
+            out = np.maximum(out, 0.0)
+            total = out.sum()
+            return list(out / total) if total > 0 else [1 / 3, 1 / 3, 1 / 3]
+        t = tier(probs)
+        keys = self._keys_for_tier(t)
+        if not keys:
+            return [1 / 3, 1 / 3, 1 / 3]
+        if len(keys) == 1:
+            out = np.asarray(probs[keys[0]], dtype=float)
         else:
-            for v in probs.values():
-                if v is not None:
-                    out = np.asarray(v, dtype=float)
-                    break
-            else:
-                return [1/3, 1/3, 1/3]
+            weights = self.weights.get(t, np.full(len(keys), 1 / len(keys)))
+            mix = sum(weights[i] * np.log(np.maximum(probs[k], 1e-9))
+                       for i, k in enumerate(keys))
+            out = _softmax(mix)
         if self.temperature != 1.0:
             log_p = np.log(np.maximum(out, 1e-9))
             out = _softmax(log_p / self.temperature)

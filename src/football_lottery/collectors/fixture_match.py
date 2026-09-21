@@ -49,7 +49,7 @@ def match_period(
     if not period:
         return {"matched": 0, "unmatched": []}
     pms = list(conn.execute(
-        "SELECT id, seq, home_name_cn, away_name_cn, match_time, match_id "
+        "SELECT id, seq, home_name_cn, away_name_cn, match_time, match_id, odds_json "
         "FROM period_matches WHERE period_id=? ORDER BY seq",
         (period["id"],),
     ))
@@ -68,7 +68,7 @@ def match_period(
                 "away_name_cn": pm["away_name_cn"],
                 "match_time": pm["match_time"],
                 "match_id": None,
-                "odds_json": None,
+                "odds_json": pm["odds_json"],
             }, ["period_id", "seq"])
             continue
         cands = _candidate_matches(conn, home_en, away_en, pm["match_time"])
@@ -81,7 +81,7 @@ def match_period(
                 "away_name_cn": pm["away_name_cn"],
                 "match_time": pm["match_time"],
                 "match_id": None,
-                "odds_json": None,
+                "odds_json": pm["odds_json"],
             }, ["period_id", "seq"])
             continue
         chosen = cands[0]
@@ -92,7 +92,7 @@ def match_period(
             "away_name_cn": pm["away_name_cn"],
             "match_time": pm["match_time"],
             "match_id": chosen["id"],
-            "odds_json": None,
+            "odds_json": pm["odds_json"],
         }, ["period_id", "seq"])
         matched += 1
     conn.commit()

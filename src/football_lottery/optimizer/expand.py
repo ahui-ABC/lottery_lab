@@ -9,6 +9,16 @@ def expand(legs: list[list[str]]) -> list[str]:
     return ["".join(c) for c in product(*legs) if all(c)]
 
 
+def expand_selected(legs: list[list[str] | None]) -> tuple[list[str], list[int]]:
+    """展开任九方案，并保留被选中的原始场次序号。"""
+    selected = [(i, leg) for i, leg in enumerate(legs) if leg]
+    if not selected:
+        return [], []
+    indices = [i for i, _ in selected]
+    rows = ["".join(c) for c in product(*(leg for _, leg in selected))]
+    return rows, indices
+
+
 def to_text(rows: list[str], meta: dict | None = None) -> str:
     """生成可打印文本清单。"""
     header_lines = [

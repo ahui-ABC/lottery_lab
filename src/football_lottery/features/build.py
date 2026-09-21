@@ -41,22 +41,41 @@ class _Elo:
 
 class FeatureBuilder:
     WINDOW = 10
+    DEFAULT_SEASON_TOTALS = {
+        "E0": 380, "I1": 380, "SP1": 380, "F1": 380,
+        "E1": 552, "D1": 306, "N1": 306, "P1": 306, "SC0": 228,
+    }
 
-    def __init__(self) -> None:
+    def __init__(self, season_totals: dict[str, int] | None = None) -> None:
         self.results: dict[str, deque] = defaultdict(lambda: deque(maxlen=self.WINDOW))
         self.last_date: dict[str, date] = {}
         self.elo = _Elo()
         # [总进球, 比赛数, 主胜, 平, 客胜]
         self.league_stats: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0])
         self.season_matches: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        self.season_totals = dict(self.DEFAULT_SEASON_TOTALS)
+        if season_totals:
+            self.season_totals.update(season_totals)
 
     def build(self, matches: Iterable[dict]) -> dict[int, dict]:
         """`matches` 必须按日期升序。返回 {match_id: features}，仅含已完赛。"""
         feats: dict[int, dict] = {}
-        for m in matches:
-            if m.get("result"):
-                feats[m["id"]] = self._row(m)
-                self._update(m)
+        rows = list(matches)
+        # Treat fixtures on the same calendar day as one pre-match batch.
+        i = 0
+        while i < len(rows):
+            day = rows[i].get("date")
+            j = i + 1
+            while j < len(rows) and rows[j].get("date") == day:
+                j += 1
+            group = rows[i:j]
+            for m in group:
+                if m.get("result"):
+                    feats[m["id"]] = self._row(m)
+            for m in group:
+                if m.get("result"):
+                    self._update(m)
+            i = j
         return feats
 
     def build_forward(self, history: Iterable[dict], upcoming: Iterable[dict]
@@ -89,7 +108,7 @@ class FeatureBuilder:
         avg_goals = (ls[0] / ls[1]) if ls[1] else 2.6
         hw_rate = (ls[2] / ls[1]) if ls[1] else 0.46
         draw_rate = (ls[3] / ls[1]) if ls[1] else 0.26
-        season_total = 380  # 设计文档占位（实现按联赛取实际值可后续扩展）
+        season_total = self.season_totals.get(m["league_code"], 380)
         return {
             "home_points_5": hp5, "home_points_10": hp10,
             "home_gf_5": hgf5, "home_ga_5": hga5,

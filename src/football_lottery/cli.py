@@ -565,6 +565,130 @@ def cmd_score_jc(args, cfg: dict) -> int:
     return 0
 
 
+def _format_pick(lottery: str, pick: dict) -> str:
+    if "front" in pick:
+        return " ".join(pick["front"]) + "  +  " + " ".join(pick["back"])
+    return "".join(pick["digits"])
+
+
+def cmd_collect_lottery(args, cfg: dict) -> int:
+    from football_lottery.collectors import lottery_history as lh
+
+    conn = _connect(cfg)
+    picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
+    unknown = [p for p in picks if p not in lh.LOTTERIES]
+    if unknown:
+        print(f"未知彩种：{','.join(unknown)}；可选 {','.join(lh.LOTTERIES)}")
+        return 2
+    blocked = False
+    try:
+        for lottery in picks:
+            name = lh.LOTTERY_NAMES[lottery]
+
+            def _progress(pages, stats, _name=name):
+                print(f"  {_name} 第 {pages} 页：入库 {stats['saved']} "
+                      f"刷新 {stats['skipped']}", flush=True)
+
+            stats = lh.sync_history(conn, lottery, since_year=args.year_from,
+                                    rate=args.rate, on_progress=_progress)
+            total = conn.execute("SELECT COUNT(*) c FROM lottery_draw WHERE lottery=?",
+                                 (lottery,)).fetchone()["c"]
+            print(f"{name}：新增 {stats['saved']}，刷新 {stats['skipped']}，"
+                  f"共 {stats['pages']} 页，库内 {total} 期"
+                  f"（{stats['oldest']} 起）")
+            if stats["blocked"]:
+                blocked = True
+                print("  ⚠ 接口返回 403/429，本轮已中止。"
+                      "隔一会儿再跑本命令即可续传；必要时用 --rate 调低速率。")
+                break
+    finally:
+        lh.close_client()
+    return 1 if blocked else 0
+
+
+def cmd_predict_lottery(args, cfg: dict) -> int:
+    from football_lottery.collectors import lottery_history as lh
+    from football_lottery.models import lottery_predict as lp
+
+    conn = _connect(cfg)
+    picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
+    strategies = (lp.STRATEGIES if args.strategy == "all"
+                  else tuple(args.strategy.split(",")))
+    try:
+        for lottery in picks:
+            lh.refresh_latest(conn, lottery)   # 先刷最新，否则会预测到已开过的期号
+            last = lh.latest_issue(conn, lottery)
+            if not last:
+                print(f"{lh.LOTTERY_NAMES[lottery]}：库内无数据，先跑 collect-lottery")
+                continue
+            target = lp.next_issue(last)
+            lp.save_predictions(conn, lottery, target, strategies,
+                                args.bets, args.window, args.seed)
+            print(f"\n== {lh.LOTTERY_NAMES[lottery]} 第 {target} 期推荐"
+                  f"（每注 {lp.BET_PRICE} 元，已存库）==")
+            rows = conn.execute(
+                """SELECT strategy, bets FROM lottery_prediction
+                   WHERE lottery=? AND target_issue=? ORDER BY strategy""",
+                (lottery, target)).fetchall()
+            for row in rows:
+                label = lp.STRATEGY_LABELS.get(row["strategy"], row["strategy"])
+                for i, bet in enumerate(json.loads(row["bets"]), 1):
+                    print(f"  {label:<4} 第{i}注  {_format_pick(lottery, bet)}")
+    finally:
+        lh.close_client()
+    return 0
+
+
+def cmd_score_lottery(args, cfg: dict) -> int:
+    from football_lottery.db import store
+    from football_lottery.models import lottery_backtest as lb
+
+    conn = _connect(cfg)
+    pending = store.fetchall(conn, """
+        SELECT p.lottery, p.target_issue, p.strategy, p.bets, d.numbers, d.prizes
+        FROM lottery_prediction p JOIN lottery_draw d
+          ON d.lottery = p.lottery AND d.issue = p.target_issue
+        WHERE p.prize IS NULL""")
+    for row in pending:
+        bets = json.loads(row["bets"])
+        drawn = json.loads(row["numbers"])
+        prizes = json.loads(row["prizes"]) if row["prizes"] else None
+        total = sum(lb.prize_for(row["lottery"], b, drawn, prizes) for b in bets)
+        hits = [lb.hits_for(row["lottery"], b, drawn) for b in bets]
+        # 只更新对奖列。不要走 store.upsert —— 那会把 created_at 一起覆盖掉
+        conn.execute(
+            """UPDATE lottery_prediction SET hits=?, prize=?
+               WHERE lottery=? AND target_issue=? AND strategy=?""",
+            (json.dumps(hits, ensure_ascii=False), total, row["lottery"],
+             row["target_issue"], row["strategy"]))
+    conn.commit()
+    print(f"已对奖 {len(pending)} 条预测")
+    return 0
+
+
+def cmd_backtest_lottery(args, cfg: dict) -> int:
+    from football_lottery.collectors import lottery_history as lh
+    from football_lottery.models import lottery_backtest as lb
+    from football_lottery.models import lottery_predict as lp
+
+    conn = _connect(cfg)
+    picks = list(lh.LOTTERIES) if args.lottery == "all" else args.lottery.split(",")
+    strategies = (lp.STRATEGIES if args.strategy == "all"
+                  else tuple(args.strategy.split(",")))
+    for lottery in picks:
+        draws = lb.load_draws(conn, lottery)
+        if len(draws) < lb.MIN_HISTORY + 30:
+            print(f"{lh.LOTTERY_NAMES[lottery]}：数据不足"
+                  f"（{len(draws)} 期，至少需要 {lb.MIN_HISTORY + 30}）")
+            continue
+        result = lb.run_backtest(draws, lottery, strategies,
+                                 window=args.window, n_bets=args.bets, seed=args.seed)
+        print()
+        print(lb.summarize(result))
+        lb.save_result(conn, result)
+    return 0
+
+
 def cmd_train(args, cfg: dict) -> int:
     from football_lottery.models import pipeline
     conn = _connect(cfg)
@@ -803,6 +927,38 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--budget", type=int)
     s.add_argument("--out", default="data/reports/plan_backtest.json")
 
+    # collect-lottery
+    s = sub.add_parser("collect-lottery",
+                       help="同步数字彩开奖（大乐透/双色球/排列三/排列五/福彩3D）")
+    s.add_argument("--lottery", default="all", help="all 或逗号分隔，如 dlt,ssq")
+    s.add_argument("--from", dest="year_from", type=int, default=2020,
+                   help="只取这一年起的；默认 2020")
+    s.add_argument("--rate", type=float, default=None,
+                   help="每秒请求上限；默认 5。被限流时调低它")
+    s.set_defaults(func=cmd_collect_lottery)
+
+    # predict-lottery
+    s = sub.add_parser("predict-lottery", help="对下一期生成各策略推荐号码")
+    s.add_argument("--lottery", default="all")
+    s.add_argument("--strategy", default="all")
+    s.add_argument("--bets", type=int, default=5)
+    s.add_argument("--window", type=int, default=100)
+    s.add_argument("--seed", type=int, default=20260921)
+    s.set_defaults(func=cmd_predict_lottery)
+
+    # score-lottery
+    s = sub.add_parser("score-lottery", help="给已开奖的数字彩预测回填命中与奖金")
+    s.set_defaults(func=cmd_score_lottery)
+
+    # backtest-lottery
+    s = sub.add_parser("backtest-lottery", help="数字彩逐期走查回测与配对显著性")
+    s.add_argument("--lottery", default="all")
+    s.add_argument("--strategy", default="all")
+    s.add_argument("--bets", type=int, default=5)
+    s.add_argument("--window", type=int, default=100)
+    s.add_argument("--seed", type=int, default=20260921)
+    s.set_defaults(func=cmd_backtest_lottery)
+
     # serve
     s = sub.add_parser("serve", help="启动本地 Web（FastAPI + 静态页）")
     s.add_argument("--port", type=int)
@@ -877,6 +1033,14 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_train(args, cfg)
     if args.cmd == "backtest-plans":
         return cmd_backtest_plans(args, cfg)
+    if args.cmd == "collect-lottery":
+        return cmd_collect_lottery(args, cfg)
+    if args.cmd == "predict-lottery":
+        return cmd_predict_lottery(args, cfg)
+    if args.cmd == "score-lottery":
+        return cmd_score_lottery(args, cfg)
+    if args.cmd == "backtest-lottery":
+        return cmd_backtest_lottery(args, cfg)
     if args.cmd == "serve":
         return cmd_serve(args, cfg)
     parser.print_help()

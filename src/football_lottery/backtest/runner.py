@@ -35,10 +35,12 @@ def walk_forward(
     model = None
     last_fit_date: date | None = None
     for i, m in enumerate(matches):
-        past = matches[:i]
+        cur_date: date = m["date"]
+        # Never train on another fixture from the same calendar day.
+        past = [p for p in matches[:i]
+                if p.get("date") < cur_date and p.get("result")]
         if not past:
             continue
-        cur_date: date = m["date"]
         if model is None or (
             last_fit_date is not None
             and (cur_date - last_fit_date) >= timedelta(days=refit_days)

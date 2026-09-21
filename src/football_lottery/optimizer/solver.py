@@ -16,6 +16,21 @@ OUTCOMES = ("3", "1", "0")
 IDX = {"3": 0, "1": 1, "0": 2}
 
 
+def _normalise_probs(probs_list: list[list[float]], expected: int | None = None) -> list[list[float]]:
+    if expected is not None and len(probs_list) != expected:
+        raise ValueError(f"expected {expected} probability rows")
+    out: list[list[float]] = []
+    for row in probs_list:
+        values = np.asarray(row, dtype=float)
+        if values.shape != (3,) or not np.all(np.isfinite(values)) or np.any(values < 0):
+            raise ValueError("each probability row must contain three finite non-negative values")
+        total = float(values.sum())
+        if total <= 0:
+            raise ValueError("each probability row must have a positive sum")
+        out.append((values / total).tolist())
+    return out
+
+
 def top_m(probs: list[float], m: int) -> list[str]:
     """按概率降序取前 m 个，并按 (3,1,0) 自然序返回。"""
     order = sorted(range(3), key=lambda i: probs[i], reverse=True)[:m]
@@ -51,6 +66,13 @@ def solve_14(probs_list: list[list[float]],
 
     objective ∈ {"first", "first_second"}。
     """
+    if objective not in {"first", "first_second"}:
+        raise ValueError("objective must be 'first' or 'first_second'")
+    if ticket_price <= 0 or budget < ticket_price:
+        raise ValueError("budget must cover at least one ticket")
+    # The core solver is also used by small synthetic tests and generic
+    # optimizers; the API layer enforces the 14-match SFC contract.
+    probs_list = _normalise_probs(probs_list)
     max_notes = budget // ticket_price
     best: dict | None = None
     for sizes in enumerate_size_vectors(len(probs_list), max_notes):
@@ -66,7 +88,8 @@ def solve_14(probs_list: list[list[float]],
                 "score": score,
                 "notes_count": int(prod(sizes)),
             }
-    assert best is not None
+    if best is None:
+        raise ValueError("no feasible sfc14 plan for the supplied budget")
     return best
 
 
@@ -78,6 +101,11 @@ def solve_r9(probs_list: list[list[float]],
 
     每个 probs 一场；选 need 场且 Πm_i ≤ max_notes，最大化 Πc_i。
     """
+    if need < 1 or need > len(probs_list):
+        raise ValueError("need must be between 1 and the number of probability rows")
+    if ticket_price <= 0 or budget < ticket_price:
+        raise ValueError("budget must cover at least one ticket")
+    probs_list = _normalise_probs(probs_list)
     n = len(probs_list)
     max_notes = budget // ticket_price
     if max_notes < 1:
@@ -115,6 +143,8 @@ def solve_r9(probs_list: list[list[float]],
                             choice[(i + 1, k + 1, nn)] = ("pick", leg, notes)
 
     best_notes = max(range(1, max_notes + 1), key=lambda t: dp[n, need, t])
+    if dp[n, need, best_notes] <= NEG / 2:
+        raise ValueError("no feasible r9 plan for the supplied budget")
     legs_chosen: list[list[str] | None] = [None] * n
     k, notes = need, best_notes
     for i in range(n, 0, -1):

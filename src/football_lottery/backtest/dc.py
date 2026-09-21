@@ -89,7 +89,10 @@ def run(
         for i, m in enumerate(league_matches):
             if m["date"] < start_d:
                 continue
-            past = league_matches[:i]
+            # A same-day row may be ordered before this fixture but is not
+            # available pre-match, so exclude it from the training set.
+            past = [p for p in league_matches[:i]
+                    if p["date"] < m["date"] and p.get("result")]
             if not past:
                 continue
             if model is None or (

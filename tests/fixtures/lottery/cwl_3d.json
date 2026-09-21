@@ -1,0 +1,56 @@
+{
+ "name": "3D",
+ "code": "2020001",
+ "detailsLink": "/c/2020/01/01/462101.shtml",
+ "videoLink": "",
+ "date": "2020-01-01(三)",
+ "week": "三",
+ "red": "0,8,7",
+ "blue": "",
+ "blue2": "",
+ "sales": "54445222",
+ "poolmoney": "23039372",
+ "content": "",
+ "addmoney": "",
+ "addmoney2": "",
+ "msg": "",
+ "z2add": "",
+ "m2add": "",
+ "prizegrades": [
+  {
+   "type": 1,
+   "typenum": "16931",
+   "typemoney": "17598680"
+  },
+  {
+   "type": 2,
+   "typenum": "0",
+   "typemoney": "0"
+  },
+  {
+   "type": 3,
+   "typenum": "30240",
+   "typemoney": "5227012"
+  },
+  {
+   "type": 4,
+   "typenum": "",
+   "typemoney": ""
+  },
+  {
+   "type": 5,
+   "typenum": "",
+   "typemoney": ""
+  },
+  {
+   "type": 6,
+   "typenum": "",
+   "typemoney": ""
+  },
+  {
+   "type": 7,
+   "typenum": "",
+   "typemoney": ""
+  }
+ ]
+}

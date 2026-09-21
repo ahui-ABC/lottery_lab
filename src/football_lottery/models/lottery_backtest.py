@@ -4,17 +4,16 @@
 这是这个子项目最重要的部分 —— 它负责证伪，而不是证实。
 
 奖金一律取**当期抓到的实际奖级表**：
-- 大乐透的奖级设置改过（2023 年前 9 个奖级、现在 7 个，三等奖从「5+0」变成
-  「5+0；4+2」且金额从 10000 变成 6666），所以「命中数→奖级」必须按当期页面上的
-  「中奖条件」列推导，**不能硬编码**。页面没给条件列时就计 0，不猜。
-- 双色球奖级稳定（一～六等奖），且页面没有条件列，只能硬编码规则 + 用页面金额算浮动奖。
+- 大乐透的奖级设置改过（2026-02-02 第 26014 期起，9 个奖级 → 7 个，三等奖从
+  「5+0」并入「5+0；4+2」），所以「命中数→奖级」要按当期适用哪套规则推导，
+  不能把任何一套硬编码到底。详见 `dlt_tiers`。
+- 双色球奖级规则长期稳定（一～六等奖），硬编码规则 + 用当期金额算浮动奖。
 - 排列三/福彩3D/排列五只按**直选**计奖：一注 2 元只买一种玩法。若同时算上组选，
   单注期望奖金会超过票价（>100% 返还率），那是模型错误而不是发现。
 """
 from __future__ import annotations
 
 import json
-import re
 
 from football_lottery.collectors.lottery_history import LOTTERY_NAMES
 from football_lottery.models import lottery_predict
@@ -23,9 +22,25 @@ BET_PRICE = lottery_predict.BET_PRICE       # 元/注，五类彩种统一 2 元
 MIN_HISTORY = 30        # 走查起点的最小历史长度
 DEFAULT_SEED = 20260921
 
-_COND_PAIR = re.compile(r"(\d+)\s*\+\s*(\d+)")
+# 大乐透改过奖级设置（2026-02-02，第 26014 期起）：
+#   旧：9 个奖级，三等奖 5+0、四等奖 4+2、五等奖 4+1 …
+#   新：7 个奖级，三等奖并入 4+2、四等奖变 4+1、五等奖并入 3+2 …
+# 两套规则的命中条件不同，所以必须按当期适用哪套来判。判据是奖级表里**有没有
+# 「九等奖」**（新规则取消了九等奖），而不是按日期硬编码切换点 —— 数据自己说话。
+DLT_TIERS_OLD = {
+    (5, 2): "一等奖", (5, 1): "二等奖", (5, 0): "三等奖",
+    (4, 2): "四等奖", (4, 1): "五等奖", (3, 2): "六等奖",
+    (4, 0): "七等奖", (3, 1): "八等奖", (2, 2): "八等奖",
+    (3, 0): "九等奖", (2, 1): "九等奖", (1, 2): "九等奖", (0, 2): "九等奖",
+}
+DLT_TIERS_NEW = {
+    (5, 2): "一等奖", (5, 1): "二等奖", (5, 0): "三等奖", (4, 2): "三等奖",
+    (4, 1): "四等奖", (4, 0): "五等奖", (3, 2): "五等奖", (3, 1): "六等奖",
+    (2, 2): "六等奖", (3, 0): "七等奖", (2, 1): "七等奖",
+    (1, 2): "七等奖", (0, 2): "七等奖",
+}
 
-# 双色球：页面无「中奖条件」列，规则长期稳定，硬编码
+# 双色球：奖级规则长期稳定，硬编码
 SSQ_TIERS = {
     (6, True): "一等奖", (6, False): "二等奖", (5, True): "三等奖",
     (5, False): "四等奖", (4, True): "四等奖",
@@ -39,19 +54,15 @@ DIRECT_PRIZE = {"p3": 1040, "3d": 1040, "p5": 100000}
 DIRECT_TIER = {"p3": ("直选",), "3d": ("直选",), "p5": ("一等奖",)}
 
 
-def dlt_tier_map(prizes) -> dict[tuple[int, int], dict]:
-    """从当期奖级表的「中奖条件」列构造 (前区命中, 后区命中) → 奖级行。
+def dlt_tiers(prizes) -> dict[tuple[int, int], str]:
+    """判断当期适用哪套大乐透奖级规则，返回 (前区命中, 后区命中) → 奖级名。
 
-    大乐透 2023 年前后改了奖级设置，硬编码一张「命中数→奖级」表必然在其中一段
-    历史里算错，所以以当期页面为准。「追加」行跳过（同条件、奖金不同，我们买的是普通票）。
+    奖级表里还有「一等奖(追加)」这类行 —— 同条件、不同奖金，我们买的是普通票，
+    映射表里不含「追加」二字，命中后按奖级名取金额时自然不会误取到追加行。
     """
-    out: dict[tuple[int, int], dict] = {}
-    for row in prizes or []:
-        if "追加" in (row.get("tier") or ""):
-            continue
-        for front, back in _COND_PAIR.findall(row.get("cond") or ""):
-            out.setdefault((int(front), int(back)), row)
-    return out
+    names = {row.get("tier") or "" for row in prizes or []}
+    has_nine = any("九等奖" in name for name in names)
+    return DLT_TIERS_OLD if has_nine else DLT_TIERS_NEW
 
 
 def _amount_of(prizes, tier: str) -> int | None:
@@ -64,10 +75,12 @@ def _amount_of(prizes, tier: str) -> int | None:
 def prize_for(lottery: str, picked: dict, drawn: dict, prizes) -> int:
     """一注号码在给定开奖下的奖金（元）。"""
     if lottery == "dlt":
+        if not prizes:
+            return 0        # 没有奖级表就判断不了适用哪套规则 —— 计 0，不猜
         front = len(set(picked["front"]) & set(drawn["front"]))
         back = len(set(picked["back"]) & set(drawn["back"]))
-        row = dlt_tier_map(prizes).get((front, back))
-        return int(row.get("amount") or 0) if row else 0
+        tier = dlt_tiers(prizes).get((front, back))
+        return (_amount_of(prizes, tier) or 0) if tier else 0
     if lottery == "ssq":
         red = len(set(picked["front"]) & set(drawn["front"]))
         blue = bool(set(picked["back"]) & set(drawn["back"]))

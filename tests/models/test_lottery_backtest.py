@@ -4,31 +4,34 @@ import pytest
 
 from football_lottery.models import lottery_backtest as lb
 
-# 2020 年的大乐透奖级表（9 级）：三等奖 5+0 @10000、八等奖 3+1/2+2 @15 …
-DLT_PRIZES_2020 = [
-    {"tier": "一等奖", "cond": "5+2", "winners": 1, "amount": 8000000},
-    {"tier": "二等奖", "cond": "5+1", "winners": 10, "amount": 150000},
-    {"tier": "三等奖", "cond": "5+0", "winners": 100, "amount": 10000},
-    {"tier": "四等奖", "cond": "4+2", "winners": 500, "amount": 3000},
-    {"tier": "五等奖", "cond": "4+1", "winners": 5000, "amount": 300},
-    {"tier": "六等奖", "cond": "3+2", "winners": 9000, "amount": 200},
-    {"tier": "七等奖", "cond": "4+0", "winners": 20000, "amount": 100},
-    {"tier": "八等奖", "cond": "3+1；2+2", "winners": 500000, "amount": 15},
-    {"tier": "九等奖", "cond": "3+0；2+1；1+2；0+2", "winners": 9000000, "amount": 5},
+# 大乐透 2026-02-02（第 26014 期）前的奖级表：9 个奖级
+DLT_PRIZES_OLD = [
+    {"tier": "一等奖", "cond": "", "winners": 1, "amount": 8000000},
+    {"tier": "一等奖(追加)", "cond": "", "winners": 0, "amount": 0},
+    {"tier": "二等奖", "cond": "", "winners": 10, "amount": 150000},
+    {"tier": "三等奖", "cond": "", "winners": 100, "amount": 10000},
+    {"tier": "四等奖", "cond": "", "winners": 500, "amount": 3000},
+    {"tier": "五等奖", "cond": "", "winners": 5000, "amount": 300},
+    {"tier": "六等奖", "cond": "", "winners": 9000, "amount": 200},
+    {"tier": "七等奖", "cond": "", "winners": 20000, "amount": 100},
+    {"tier": "八等奖", "cond": "", "winners": 500000, "amount": 15},
+    {"tier": "九等奖", "cond": "", "winners": 9000000, "amount": 5},
 ]
-# 2026 年的奖级表（7 级）：三等奖并入了 4+2、金额也变了
-DLT_PRIZES_2026 = [
-    {"tier": "一等奖", "cond": "5+2", "winners": 3, "amount": 10000000},
-    {"tier": "三等奖", "cond": "5+0；4+2", "winners": 995, "amount": 6666},
-    {"tier": "四等奖", "cond": "4+1", "winners": 16929, "amount": 380},
-    {"tier": "五等奖", "cond": "4+0；3+2", "winners": 66439, "amount": 200},
-    {"tier": "六等奖", "cond": "3+1；2+2", "winners": 765764, "amount": 18},
-    {"tier": "七等奖", "cond": "3+0；2+1；1+2；0+2", "winners": 8096524, "amount": 7},
+# 2026-02-02 起的奖级表：7 个奖级，三等奖并入 4+2、四等奖变 4+1
+DLT_PRIZES_NEW = [
+    {"tier": "一等奖", "cond": "", "winners": 3, "amount": 10000000},
+    {"tier": "一等奖(追加)", "cond": "", "winners": 0, "amount": 0},
+    {"tier": "二等奖", "cond": "", "winners": 77, "amount": 264830},
+    {"tier": "三等奖", "cond": "", "winners": 995, "amount": 6666},
+    {"tier": "四等奖", "cond": "", "winners": 16929, "amount": 380},
+    {"tier": "五等奖", "cond": "", "winners": 66439, "amount": 200},
+    {"tier": "六等奖", "cond": "", "winners": 765764, "amount": 18},
+    {"tier": "七等奖", "cond": "", "winners": 8096524, "amount": 7},
 ]
 DLT_DRAWN = {"front": ["01", "02", "03", "04", "05"], "back": ["01", "02"]}
 
 
-def _dlt(front, back, drawn=DLT_DRAWN, prizes=DLT_PRIZES_2020):
+def _dlt(front, back, drawn=DLT_DRAWN, prizes=DLT_PRIZES_OLD):
     return lb.prize_for("dlt", {"front": front, "back": back}, drawn, prizes)
 
 
@@ -39,27 +42,33 @@ def _draws(n, lottery="p3", numbers=None, start=1):
             for i in range(n)]
 
 
-def test_dlt_tier_map_skips_appended_rows():
-    prizes = DLT_PRIZES_2020 + [{"tier": "一等奖(追加)", "cond": "5+2",
-                                 "winners": 0, "amount": 0}]
-    mapping = lb.dlt_tier_map(prizes)
-    assert mapping[(5, 2)]["tier"] == "一等奖"
-    assert mapping[(5, 2)]["amount"] == 8000000
+def test_dlt_tier_rules_detected_from_prize_table():
+    """判据是表里有没有「九等奖」—— 新规则取消了九等奖。"""
+    assert lb.dlt_tiers(DLT_PRIZES_OLD)[(2, 1)] == "九等奖"
+    assert lb.dlt_tiers(DLT_PRIZES_NEW)[(2, 1)] == "七等奖"
+    assert lb.dlt_tiers(DLT_PRIZES_OLD)[(3, 2)] == "六等奖"
+    assert lb.dlt_tiers(DLT_PRIZES_NEW)[(3, 2)] == "五等奖"
 
 
-def test_dlt_prizes_follow_the_page_not_a_hardcoded_table():
-    """同一次命中在不同年份的奖级表下必须给出不同的奖金 ——
-    大乐透改过奖级设置（9 级 → 7 级），硬编码的表必然算错一段历史。"""
-    five_zero = ["01", "02", "03", "04", "05"], ["03", "04"]     # 5+0
-    four_two = ["01", "02", "03", "04", "06"], ["01", "02"]      # 4+2
-    assert _dlt(*five_zero, prizes=DLT_PRIZES_2020) == 10000     # 三等奖
-    assert _dlt(*five_zero, prizes=DLT_PRIZES_2026) == 6666      # 三等奖（并入 4+2）
-    assert _dlt(*four_two, prizes=DLT_PRIZES_2020) == 3000       # 四等奖
-    assert _dlt(*four_two, prizes=DLT_PRIZES_2026) == 6666       # 现在是三等奖
+def test_dlt_same_hits_pay_differently_across_rule_eras():
+    """同一次命中在两套规则下奖金不同 —— 硬编码任何一套都会算错另一段历史。
+
+    2026-02-02（第 26014 期）起：三等奖由「5+0」变成「5+0 或 4+2」，
+    四等奖由「4+2」变成「4+1」。
+    """
+    five_zero = ["01", "02", "03", "04", "05"], ["03", "04"]
+    four_two = ["01", "02", "03", "04", "06"], ["01", "02"]
+    three_two = ["01", "02", "03", "06", "07"], ["01", "02"]
+    assert _dlt(*five_zero, prizes=DLT_PRIZES_OLD) == 10000     # 旧：三等奖
+    assert _dlt(*five_zero, prizes=DLT_PRIZES_NEW) == 6666      # 新：三等奖
+    assert _dlt(*four_two, prizes=DLT_PRIZES_OLD) == 3000       # 旧：四等奖
+    assert _dlt(*four_two, prizes=DLT_PRIZES_NEW) == 6666       # 新：并入三等奖
+    assert _dlt(*three_two, prizes=DLT_PRIZES_OLD) == 200       # 旧：六等奖
+    assert _dlt(*three_two, prizes=DLT_PRIZES_NEW) == 200       # 新：五等奖（金额相同）
 
 
-def test_dlt_tier_boundaries():
-    assert _dlt(["01", "02", "03", "04", "06"], ["01", "02"]) == 3000      # 4+2
+def test_dlt_tier_boundaries_old_rules():
+    assert _dlt(["01", "02", "03", "04", "06"], ["01", "02"]) == 3000      # 4+2 四等奖
     assert _dlt(["01", "02", "03", "06", "07"], ["01", "02"]) == 200       # 3+2 六等奖
     assert _dlt(["01", "02", "06", "07", "08"], ["01", "02"]) == 15        # 2+2 八等奖
     assert _dlt(["01", "02", "03", "06", "07"], ["01", "03"]) == 15        # 3+1 八等奖
@@ -67,8 +76,16 @@ def test_dlt_tier_boundaries():
     assert _dlt(["01", "02", "06", "07", "08"], ["03", "04"]) == 0         # 2+0 未中奖
 
 
+def test_dlt_appended_prize_rows_are_not_used():
+    """「一等奖(追加)」同条件、不同奖金 —— 我们买的是普通票，不能取到追加行的金额。"""
+    prizes = [{"tier": "一等奖(追加)", "cond": "", "winners": 1, "amount": 8000000},
+              {"tier": "九等奖", "cond": "", "winners": 1, "amount": 5}]
+    assert _dlt(DLT_DRAWN["front"], DLT_DRAWN["back"], prizes=prizes) == 0
+
+
 def test_dlt_missing_prize_table_pays_zero_not_a_guess():
-    """页面没给奖级表时计 0，绝不估算 —— 估错的奖金会污染整个 ROI。"""
+    """没有奖级表就判断不了适用哪套规则 —— 计 0，绝不估算。
+    估错的奖金会污染整个 ROI，而且偏高的估算会让回测看起来「有利可图」。"""
     assert _dlt(["01", "02", "03", "04", "05"], ["01", "02"], prizes=None) == 0
     assert _dlt(["01", "02", "03", "04", "06"], ["01", "02"], prizes=[]) == 0
 
