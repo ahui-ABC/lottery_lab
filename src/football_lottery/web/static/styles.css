@@ -76,16 +76,17 @@ nav a {
 
 nav a:hover { color: var(--text); background: var(--bg-elev-2); }
 
-/* 品牌：左侧色块 + 字重，避免用 emoji */
-.brand {
+/* 品牌：左侧色块 + 字重，避免用 emoji；是链接（回首页），所以覆盖 nav a 的样式 */
+nav a.brand {
   font-weight: 700;
   font-size: 15px;
   letter-spacing: -.01em;
   color: var(--text);
   margin-right: 18px;
-  padding-left: 14px;
+  padding: 0 0 0 14px;
   position: relative;
 }
+nav a.brand:hover { color: var(--info); background: none; }
 .brand::before {
   content: "";
   position: absolute;
