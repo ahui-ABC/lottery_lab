@@ -397,6 +397,26 @@ details summary:hover { text-decoration: underline; }
 /* ---- 汇总行 ------------------------------------------------------------ */
 .summary-total { font-size: 15px; font-weight: 600; margin: 8px 0; }
 
+/* ---- 数字彩号码球 ------------------------------------------------------ */
+.balls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ball {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono); font-size: 14px; font-weight: 700;
+  background: var(--bg-elev-2); border: 1px solid var(--border-2);
+}
+.ball.front { background: var(--bad-dim);  color: var(--bad);  border-color: var(--bad); }
+.ball.back  { background: var(--info-dim); color: var(--info); border-color: var(--info); }
+.ball.digit { background: var(--ok-dim);   color: var(--ok);   border-color: var(--ok); }
+.ball.plus  { background: none; border: none; color: var(--text-dim); width: 14px; }
+
+/* 频次热力格：次数越多越暖 */
+.freq-cell { font-family: var(--mono); font-size: 12px; padding: 3px 6px; text-align: center; }
+.freq-hot  { background: rgba(255, 107, 107, .20); color: var(--bad); }
+.freq-warm { background: rgba(255, 181, 71, .16);  color: var(--warn); }
+.freq-cool { background: rgba(76, 194, 255, .12);  color: var(--text-mid); }
+.freq-cold { background: var(--bg-elev-2);         color: var(--text-dim); }
+
 /* ---- 打印：回到浅色，省墨 ------------------------------------------------- */
 @media print {
   nav, button, details summary { display: none; }

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}数字彩{% endblock %}
+{% block content %}
+<h2>数字彩</h2>
+<p class="hint">
+  大乐透 / 双色球 / 排列三 / 排列五 / 福彩3D 的历史开奖与选号推荐。
+  <strong>摇奖机是独立同分布的</strong>：下面每条策略的命中率，长期看都与随机选号
+  没有区别。页面底部的回测表就是用真实历史检验这句话的 —— 请以它为准，不要以推荐号码为准。
+</p>
+
+{% for lot in lotteries %}
+<h3>{{ lot.name }}{% if lot.latest %}（最新 {{ lot.latest.issue }} 期 · {{ lot.latest.draw_date }}）{% endif %}</h3>
+
+{% if not lot.latest %}
+<p class="hint">库内暂无数据。先跑 <code>collect-lottery --lottery {{ lot.code }}</code>。</p>
+{% else %}
+
+<div class="card">
+  <div class="balls">
+    {% if lot.latest.numbers.front %}
+      {% for n in lot.latest.numbers.front %}<span class="ball front">{{ n }}</span>{% endfor %}
+      <span class="ball plus">+</span>
+      {% for n in lot.latest.numbers.back %}<span class="ball back">{{ n }}</span>{% endfor %}
+    {% else %}
+      {% for n in lot.latest.numbers.digits %}<span class="ball digit">{{ n }}</span>{% endfor %}
+    {% endif %}
+  </div>
+</div>
+
+{% if lot.predictions %}
+<p class="hint">第 <strong>{{ lot.target }}</strong> 期推荐（每注 2 元）：</p>
+<table>
+  <thead><tr><th>策略</th><th>推荐号码</th></tr></thead>
+  <tbody>
+  {% for p in lot.predictions %}
+    <tr>
+      <td>{{ p.label }}</td>
+      <td>
+        {% for bet in p.bets %}
+          <div class="balls" style="margin:3px 0">
+            {% if bet.front %}
+              {% for n in bet.front %}<span class="ball front">{{ n }}</span>{% endfor %}
+              <span class="ball plus">+</span>
+              {% for n in bet.back %}<span class="ball back">{{ n }}</span>{% endfor %}
+            {% else %}
+              {% for n in bet.digits %}<span class="ball digit">{{ n }}</span>{% endfor %}
+            {% endif %}
+          </div>
+        {% endfor %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="hint">还没有第 {{ lot.target }} 期的推荐。跑 <code>predict-lottery --lottery {{ lot.code }}</code>。</p>
+{% endif %}
+
+<details>
+  <summary>近 100 期频次与遗漏</summary>
+  {% for group in lot.freq %}
+  <p class="hint">{{ group.zone }}</p>
+  <div class="table-scroll">
+  <table>
+    <tbody>
+      <tr><td class="hint">号码</td>
+        {% for c in group.cells %}<td class="freq-cell">{{ c.value }}</td>{% endfor %}</tr>
+      <tr><td class="hint">次数</td>
+        {% for c in group.cells %}
+          <td class="freq-cell {% if c.count >= 8 %}freq-hot{% elif c.count >= 5 %}freq-warm{% elif c.count >= 2 %}freq-cool{% else %}freq-cold{% endif %}">{{ c.count }}</td>
+        {% endfor %}</tr>
+      <tr><td class="hint">遗漏</td>
+        {% for c in group.cells %}<td class="freq-cell">{{ c.gap }}</td>{% endfor %}</tr>
+    </tbody>
+  </table>
+  </div>
+  {% endfor %}
+</details>
+
+{% if lot.backtest %}
+<details open>
+  <summary>回测结果（逐期走查，每注 2 元）</summary>
+  <div class="table-scroll">
+  <table>
+    <thead><tr>
+      <th>策略</th><th>期数</th><th>投入</th><th>返还</th><th>返还率</th>
+      <th>中奖期占比</th><th>vs 随机 p 值</th>
+    </tr></thead>
+    <tbody>
+    {% for row in lot.backtest %}
+      <tr>
+        <td>{{ row.label }}</td>
+        <td>{{ row.metrics.draws }}</td>
+        <td>¥{{ "%.0f" | format(row.metrics.invested or 0) }}</td>
+        <td>¥{{ "%.0f" | format(row.metrics.returned or 0) }}</td>
+        <td>{{ "%.1f%%" | format((row.metrics.return_rate or 0) * 100) }}</td>
+        <td>{{ "%.1f%%" | format((row.metrics.win_rate or 0) * 100) }}</td>
+        <td>
+          {% if row.strategy == "random" %}<span class="hint">基线</span>
+          {% elif row.paired %}
+            p={{ "%.3f" | format(row.paired.p) }}
+            {% if row.paired.beats_random %}<span class="ok">显著</span>
+            {% else %}<span class="hint">无差异</span>{% endif %}
+          {% else %}<span class="hint">—</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="hint">
+    「vs 随机 p 值」是同一期上「该策略收益 − 随机收益」的配对 t 检验。
+    p &gt; 0.05 表示两者不可区分 —— 对摇奖机而言这是预期结果。
+    同时跑了多条策略，α=0.05 下每 20 次检验平均出现一次假显著。
+    <br>若某策略显示「显著」，请先怀疑回测代码有泄漏，而不是号码真的能算出来。
+  </p>
+</details>
+{% else %}
+<p class="hint">还没有回测结果。跑 <code>backtest-lottery --lottery {{ lot.code }}</code>。</p>
+{% endif %}
+
+{% endif %}
+{% endfor %}
+{% endblock %}

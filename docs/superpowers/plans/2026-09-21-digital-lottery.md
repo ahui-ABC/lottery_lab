@@ -1,5 +1,16 @@
 # 数字彩（大乐透/双色球/排列三/排列五/福彩3D）实施计划
 
+> **⚠ 实施过程中的重大变更（2026-09-21，已执行）**
+>
+> 本计划 Task 2 写的是抓第三方站点彩宝贝的 HTML 单期页。实施时该方案被放弃：
+> 1 请求/期、6 年约 8000 次，实测 6 并发无间隔约 1000 次请求就把整个 IP 被 WAF 封了。
+> 已改为**官方接口**（体彩 webapi + 福彩 cwl.gov.cn），每页 100 期、6 年约 85 个请求。
+> 因此下面 Task 2 的 HTML 解析、枚举回填、`sync_range`/`sync_tail`、`notes` 命名
+> **均已被取代**，实际以 `docs/superpowers/specs/2026-09-21-digital-lottery-design.md`
+> 与代码为准（`parse_sporttery`/`parse_cwl`/`sync_history`/`refresh_latest`/`bets`）。
+> 其余任务（表结构、策略、回测、CLI、页面）按计划执行。
+> 实际结论见 `docs/数字彩回测结论.md`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 抓取 2020 年至今五类数字彩开奖数据入库，实现五条选号策略的预测，并用逐期走查回测量化每条策略相对随机选号的真实表现。

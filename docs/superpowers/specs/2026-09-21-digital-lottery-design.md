@@ -15,49 +15,53 @@
 
 第 2 条是硬约束。没有它，第 1 条就是自欺欺人。
 
-## 2. 数据源调研结论（已实测，勿重复调研）
+## 2. 数据源（已实测，勿重复调研）
 
-来源：彩宝贝 `https://kaijiang.78500.cn/`
+**用官方接口。** 最初选的是第三方站点彩宝贝（`kaijiang.78500.cn`），
+但它的单期页面是 1 请求/期（6 年约 8000 次），实测 6 并发无间隔约 1000 次请求
+就被阿里云 WAF 封了整个 IP。官方接口每页 100 期，6 年只要约 85 个请求 —— 差 94 倍，
+而且是权威源、JSON、无 WAF、不必处理编码与 HTML 结构漂移。78500 相关代码已删除。
 
-| 项 | 结论 |
-|---|---|
-| 列表页 `/dlt/` `/ssq/` `/p3/` `/p5/` `/3d/` | 只返回最近 100 期，**无分页参数**（`?page=2` 被忽略；`/index_2.html`、`/2025/` 均 404） |
-| 单期页 `/{lottery}/{issue}/` | ✅ 可用，2020 年至今全部可取；不存在返回 **404** |
-| 编码 | **gb18030** |
-| 反爬 | **必须带浏览器 User-Agent**，否则阿里云 WAF 返回 403 |
-| 手机版 | `m.78500.cn/kaijiang/{lottery}/{issue}.html`（不使用，结构未验证） |
+| 彩种 | 来源 | 标识 | 每页 | 全历史 |
+|---|---|---|---|---|
+| 大乐透 | `webapi.sporttery.cn/gateway/lottery/getHistoryPageListV1.qry` | `gameNo=85` | 100 | 2925 期（2007 起） |
+| 排列三 | 同上 | `gameNo=35` | 100 | 7728 期 |
+| 排列五 | 同上 | `gameNo=350133` | 100 | 7728 期 |
+| 双色球 | `www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice` | `name=ssq` | 100 | 2067 期 |
+| 福彩3D | 同上 | `name=3d` | 100 | 4758 期 |
 
-### 2.1 五种彩种模板完全一致
+体彩网关与足彩用的是同一个，无需认证；福彩需要 `Referer: https://www.cwl.gov.cn/ygkj/wqkjgg/`。
 
-```
-#kjCode ul.kjh li          → 开奖号码；class 含 rb_kj = 前区/红球，b_kj = 后区/蓝球
-#kjCode .kjh_order_nums    → 出球顺序
-#endTime                   → 开奖日期，形如 "2026年09月19日 星期六"
-#sale                      → 本期投注金额，形如 "313,508,185元"
-#bonusBalance              → 滚入下期奖金（排列三/五/3D 无此项，该行被注释）
-#winList tr                → 奖级表：奖级 / 中奖条件 / 中奖注数 / 单注奖金
-```
+### 2.1 字段映射
 
-### 2.2 两个必须处理的坑
+**体彩**：`lotteryDrawNum`（5 位期号，如 `26107` → 补成 `2026107`）、
+`lotteryDrawResult`（空格分隔，如 `02 05 07 14 22 04 10`）、`lotteryUnsortDrawresult`（出球顺序）、
+`lotteryDrawTime`、`totalSaleAmount`、`poolBalanceAfterdraw`、
+`prizeLevelList[]`（`prizeLevel` 奖级名 / `stakeAmountFormat` 单注奖金 / `stakeCount` 注数）。
 
-1. **排列三/排列五/福彩3D 的号码是单位数**：页面里是 `<li class="rb_kj">0</li>`，
-   issue 2020100 的号码是 `0 6 4` 而非 `064`。**必须按位数左侧补零**（p3/3d 补到 3 位，p5 补到 5 位），
-   否则 `064` 会变成 `64`，命中判定全错。
-2. **期号不连续**：2026-06-13 才到 2026154 期（春节停售），不能按日期推算期号。
-   回填策略是**枚举 + 404 跳过**：每个彩种有已知的年最大期号上界
-   （`per_year`，大乐透/双色球 160，排列类 370），枚举全部并在 404 时跳过。
-   多做约十几次无效请求，换来的是不必猜「连续几个 404 才算到头」这种脆弱启发式。
+**福彩**：`code`（已是 7 位）、`red` / `blue`（逗号分隔）、`date`（形如 `2026-09-20(日)`）、
+`sales`、`poolmoney`、`prizegrades[]`（`type` 编号 → 奖级名 / `typemoney` / `typenum`）。
 
-### 2.3 回填量估算
+### 2.2 五个必须处理的坑（都是实测撞出来的）
 
-| 彩种 | 频率 | 6.7 年约需请求 |
-|---|---|---|
-| dlt | 周一三六 | ~1050 |
-| ssq | 周二四日 | ~1030 |
-| p3 / p5 / 3d | 每日 | ~2450 × 3 |
-| **合计** | | **~8000** |
+1. **体彩用 `-1` 表示「该项不适用」**（例如追加奖没开出）。按「去掉非数字字符」解析
+   会把它变成正的 `1`，静默把哨兵值当成了奖金。要在清洗前先判负号。
+2. **福彩两个彩种的 `typemoney` 口径不同**：双色球是**单注**奖金（三等奖 3000、四等奖 200
+   都对得上法定值），3D 是**总奖金**（2020001 期「直选」= 17,598,680 ÷ 16,931 注 ≈ 1039.4）。
+   混用会把 3D 直选当成 1759 万。3D 奖金是法定固定值，回测直接算固定值，不取这份数据。
+3. **排列类的号码是空格/逗号分隔的单字符**（`2 0 2`），必须保持单个字符，
+   不能拼成 `202` 再当数字处理。
+4. **大乐透的奖级设置改过**：2026-02-02（第 26014 期）起由 9 个奖级改为 7 个，
+   三等奖从「5+0」并入「5+0；4+2」，四等奖从「4+2」变成「4+1」。
+   6 年数据横跨两套规则，判据用**当期奖级表里有没有「九等奖」**，不按日期硬编码。
+5. **福彩3D 的 `prizegrades` 长期为空**（2026 年各期均为空表），3D 的奖金走固定值。
 
-6 线程 + httpx 连接池，约 5–8 分钟。失败页要记入断点，支持重跑续传。
+### 2.3 请求量
+
+全量回填（`--from 2020`）实测约 85 个请求、几十秒。单线程按页抓即可，
+没有并发必要 —— 也就不会重演把站点打爆那一幕。仍保留全局限速令牌桶
+（默认 5 次/秒）与撞 403/429 即中止的退避逻辑，作为对任何对端的基本礼貌
+与自我保护：被拦时**不换 UA、不换代理**（那是绕过反爬），只降速，降不下来就停手。
 
 ## 3. 数据模型
 
@@ -69,7 +73,7 @@ CREATE TABLE IF NOT EXISTS lottery_draw (
   issue        TEXT NOT NULL,   -- '2026107'
   draw_date    TEXT NOT NULL,   -- 'YYYY-MM-DD'
   numbers      TEXT NOT NULL,   -- JSON {"front":[2,5,7,14,22],"back":[4,10]}
-                                --   或 {"digits":[0,6,4]}（已补零的字符串数组）
+                                --   或 {"digits":["0","6","4"]}（接口给的就是单字符，原样保留）
   draw_order   TEXT,            -- JSON 出球顺序，缺失为 NULL
   sales        INTEGER,         -- 本期投注金额（元）
   jackpot      INTEGER,         -- 滚入下期奖金（元）
@@ -113,24 +117,29 @@ CREATE TABLE IF NOT EXISTS lottery_backtest (
 
 ```python
 LOTTERIES = {
-    "dlt": {"name": "大乐透", "kind": "two_zone", "front": 5, "front_max": 35,
-            "back": 2, "back_max": 12, "per_year": 160},
-    "ssq": {"name": "双色球", "kind": "two_zone", "front": 6, "front_max": 33,
-            "back": 1, "back_max": 16, "per_year": 160},
-    "p3":  {"name": "排列三", "kind": "digits", "digits": 3, "per_year": 370},
-    "p5":  {"name": "排列五", "kind": "digits", "digits": 5, "per_year": 370},
-    "3d":  {"name": "福彩3D", "kind": "digits", "digits": 3, "per_year": 370},
+    "dlt": {"name": "大乐透", "source": "sporttery", "game_no": "85",
+            "kind": "two_zone", "front": 5, "front_max": 35, "back": 2, "back_max": 12},
+    "ssq": {"name": "双色球", "source": "cwl", "game_no": "ssq",
+            "kind": "two_zone", "front": 6, "front_max": 33, "back": 1, "back_max": 16},
+    "p3":  {"name": "排列三", "source": "sporttery", "game_no": "35",
+            "kind": "digits", "digits": 3},
+    "p5":  {"name": "排列五", "source": "sporttery", "game_no": "350133",
+            "kind": "digits", "digits": 5},
+    "3d":  {"name": "福彩3D", "source": "cwl", "game_no": "3d",
+            "kind": "digits", "digits": 3},
 }
 ```
 
-- `parse_draw(html, lottery)` — 纯函数，输入 HTML 字符串返回 dict。测试用本地 fixture。
-- `fetch_draw(lottery, issue)` — 返回 dict 或 `None`（404）。
-- `sync_range(conn, lottery, year_from, year_to, workers=6, on_progress=None)`
-  - 线程池并发抓取，**主线程单线程写库**（沿用 `jc_history.sync_day` 的模式）
-  - 断点续传：先查 `lottery_draw` 已有的 issue 集合，只抓缺的
-  - 连续 20 个 404 判定该年结束，跳到下一年
-  - 自建 httpx 连接池（不复用 `sporttery.get_client()`：它带的 `Referer`/`Origin`
-    指向体彩官网，发给彩宝贝既不对也可能触发风控）
+- `parse_sporttery(item, lottery)` / `parse_cwl(item, lottery)` — 纯函数，输入接口返回的
+  单条 JSON 记录返回 dict。号码个数/位数与彩种规格不符时抛 `ValueError`，绝不静默返回残缺数据。
+- `fetch_page(lottery, page_no)` — 返回该页原始记录；空列表表示没有更多。
+- `sync_history(conn, lottery, since_year=None, rate=None, on_progress=None)`
+  - **单线程按页抓**（每页 100 期，6 年只要几十个请求），不并发 —— 也就不会把站点打爆
+  - 幂等：已有期号也照样覆盖（数据源可能修正），只是计入 `skipped` 而不是 `saved`
+  - 接口是倒序的，抓到比 `since_year` 更早的期号即停止翻页
+  - 撞 403/429 立刻中止整轮，`stats["blocked"] = True`
+- `refresh_latest(conn, lottery)` — 只刷第一页，给「预测下一期」用。
+- 全局限速令牌桶 `_RateLimiter` 保护所有请求（默认 5 次/秒）。
 
 ## 5. 预测模型 `models/lottery_predict.py`
 
@@ -169,9 +178,9 @@ def sample_numbers(weights: dict[str, float], k: int, rng) -> list[str]:
 
 | 彩种 | 命中判定 | 奖金来源 |
 |---|---|---|
-| `dlt` | 前区命中数 + 后区命中数 → 奖级（5+2…0+2） | 当期实际奖级表（浮动奖）+ 固定奖级规则 |
+| `dlt` | 前区命中数 + 后区命中数 → 奖级（5+2…0+2） | 当期实际奖级表；**按表里有没有「九等奖」判适用哪套规则** |
 | `ssq` | 红球命中数 + 蓝球是否命中 → 奖级 | 同上 |
-| `p3`/`3d` | 三位全中（**直选**） | 固定 1040 元 |
+| `p3`/`3d` | 三位全中（**直选**） | 固定 1040 元（3D 的奖级接口为空，只能用固定值） |
 | `p5` | 五位全中 | 固定 100000 元 |
 
 单注投入统一 2 元。
@@ -201,14 +210,14 @@ def sample_numbers(weights: dict[str, float], k: int, rng) -> list[str]:
 
 | 命令 | 作用 |
 |---|---|
-| `collect-lottery --lottery all --from 2020-01-01 [--workers 6]` | 回填历史（断点续传） |
-| `predict-lottery --lottery dlt [--strategy hot,weighted] [--notes 5]` | 对下一期生成推荐并存 `lottery_prediction` |
+| `collect-lottery --lottery all --from 2020 [--rate 5]` | 同步历史（幂等，可重复跑） |
+| `predict-lottery --lottery dlt [--strategy hot,weighted] [--bets 5]` | 对下一期生成推荐并存 `lottery_prediction` |
 | `score-lottery` | 给已开奖的预测回填 hits/prize |
-| `backtest-lottery --lottery all --window 100 [--notes 5]` | 逐期走查 + 显著性表 |
+| `backtest-lottery --lottery all [--window 100] [--bets 5]` | 逐期走查 + 显著性表 |
 
 ## 8. Web 页面 `/lottery`
 
-- 五个彩种切换（卡片行）
+- 五个彩种纵向排布（每类一张卡 + 推荐 + 频次遗漏 + 回测表）
 - 最新一期开奖号码（球体样式，区分前区/后区色）
 - 下一期推荐号码：各策略一行
 - 近 100 期号码频次 + 遗漏表
@@ -220,7 +229,7 @@ def sample_numbers(weights: dict[str, float], k: int, rng) -> list[str]:
 
 | 文件 | 覆盖 |
 |---|---|
-| `tests/collectors/test_lottery_parse.py` | 五种彩种 fixture HTML 解析；**补零**；`*`/缺失字段容错；404 判定 |
+| `tests/collectors/test_lottery_collect.py` | 五种彩种 fixture JSON 解析；期号归一（5 位→7 位）；`-1`/`---` 哨兵值不当成数字；限速与 403 中止；幂等入库 |
 | `tests/models/test_lottery_predict.py` | 权重函数；Gumbel 采样；**防泄漏断言**；按位统计正确 |
 | `tests/models/test_lottery_backtest.py` | 奖级判定（含边界：5+1、4+2、3+0）；ROI 计算；配对检验 |
 | `tests/test_cli_lottery.py` | 命令装配与健康检查 |

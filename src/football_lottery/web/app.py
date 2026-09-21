@@ -132,6 +132,87 @@ def page_jc(request: Request):
     return templates.TemplateResponse(request, "jc.html", {})
 
 
+def _frequency_groups(history: list[dict], spec: dict, window: int = 100) -> list[dict]:
+    """近 window 期的出现次数与遗漏期数，供页面画热力格。"""
+    from collections import Counter
+
+    recent = history[-window:]
+
+    def _cells(universe, values_per_draw):
+        counts = Counter(v for values in values_per_draw for v in values)
+        gap, seen = {}, set()
+        for age, values in enumerate(reversed(values_per_draw)):
+            for v in values:
+                if v not in seen:
+                    gap[v] = age
+                    seen.add(v)
+        return [{"value": v, "count": counts.get(v, 0),
+                 "gap": gap.get(v, len(recent))} for v in universe]
+
+    if spec["kind"] == "two_zone":
+        return [
+            {"zone": "前区", "cells": _cells(
+                [f"{i:02d}" for i in range(1, spec["front_max"] + 1)],
+                [d["numbers"]["front"] for d in recent])},
+            {"zone": "后区", "cells": _cells(
+                [f"{i:02d}" for i in range(1, spec["back_max"] + 1)],
+                [d["numbers"]["back"] for d in recent])},
+        ]
+    return [
+        {"zone": f"第{pos + 1}位", "cells": _cells(
+            [str(i) for i in range(10)],
+            [[d["numbers"]["digits"][pos]] for d in recent])}
+        for pos in range(spec["digits"])
+    ]
+
+
+def _lottery_context(conn) -> dict:
+    from football_lottery.collectors.lottery_history import LOTTERIES
+    from football_lottery.models import lottery_predict as lp
+
+    lotteries = []
+    for code, spec in LOTTERIES.items():
+        last = store.fetchone(conn, """
+            SELECT issue, draw_date, numbers, prizes FROM lottery_draw
+            WHERE lottery=? ORDER BY issue DESC LIMIT 1""", (code,))
+        if last is None:
+            lotteries.append({"code": code, "name": spec["name"], "latest": None,
+                              "predictions": [], "freq": [], "backtest": [],
+                              "target": None})
+            continue
+        history = lp.load_history(conn, code)
+        target = lp.next_issue(last["issue"])
+        preds = store.fetchall(conn, """
+            SELECT strategy, bets FROM lottery_prediction
+            WHERE lottery=? AND target_issue=? ORDER BY strategy""", (code, target))
+        tests = store.fetchall(conn, """
+            SELECT strategy, metrics, paired FROM lottery_backtest
+            WHERE lottery=? ORDER BY strategy""", (code,))
+        lotteries.append({
+            "code": code, "name": spec["name"],
+            "latest": {"issue": last["issue"], "draw_date": last["draw_date"],
+                       "numbers": json.loads(last["numbers"]),
+                       "prizes": json.loads(last["prizes"]) if last["prizes"] else []},
+            "target": target,
+            "predictions": [{"strategy": r["strategy"],
+                             "label": lp.STRATEGY_LABELS.get(r["strategy"], r["strategy"]),
+                             "bets": json.loads(r["bets"])} for r in preds],
+            "freq": _frequency_groups(history, spec),
+            "backtest": [{"strategy": r["strategy"],
+                          "label": lp.STRATEGY_LABELS.get(r["strategy"], r["strategy"]),
+                          "metrics": json.loads(r["metrics"]) if r["metrics"] else {},
+                          "paired": json.loads(r["paired"]) if r["paired"] else None}
+                         for r in tests],
+        })
+    return {"lotteries": lotteries}
+
+
+@app.get("/lottery", response_class=HTMLResponse)
+def page_lottery(request: Request):
+    conn = _get_conn()
+    return templates.TemplateResponse(request, "lottery.html", _lottery_context(conn))
+
+
 @app.get("/api/jc/plans")
 def api_jc_plans(limit: int = 12):
     """最近的串关方案（含选场明细与组合数）。"""
