@@ -50,103 +50,41 @@ body {
 /* 数字统一等宽，避免跳动 */
 .num, td, .stat-value { font-variant-numeric: tabular-nums; }
 
-/* ---- 顶部导航 ---------------------------------------------------------- */
-nav {
+/* ---- 布局：左侧栏 + 主区 ------------------------------------------------- */
+/* 侧栏有纵向空间，所以菜单直接平铺展开，不用下拉 —— 少一层交互，
+   也顺带避开了 hover 缝隙丢焦点那类问题 */
+
+.shell { display: flex; align-items: flex-start; min-height: 100vh; }
+
+.sidebar {
+  flex: 0 0 208px;
   position: sticky;
   top: 0;
-  z-index: 20;
+  height: 100vh;
+  overflow-y: auto;
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 24px;
-  height: 52px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 12px 32px;
   background: rgba(13, 16, 23, .92);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
-nav a {
-  color: var(--text-mid);
-  text-decoration: none;
-  padding: 6px 14px;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
-  transition: color .15s, background .15s;
-}
-
-nav a:hover { color: var(--text); background: var(--bg-elev-2); }
-
-/* 当前页：文字高亮 + 淡底，与 hover 区分开 */
-nav a.active { color: var(--info); background: var(--info-dim); }
-nav a.brand.active { color: var(--info); background: none; }
-
-/* ---- 下拉菜单（纯 CSS，无 JS） ----------------------------------------- */
-/* 菜单标题本身就是链接（点它进该大块的主页），不是死标签 */
-
-.nav-spacer { flex: 1; }
-
-/* align-self: stretch 让 .menu 占满导航高度 —— 这样面板 top:100% 正好是
-   导航底边，鼠标从标题移到面板不会经过「谁都不属于」的缝隙而丢掉 hover */
-nav .menu {
+/* 品牌：左侧色块 + 字重，避免用 emoji；是链接（回概览页） */
+.brand {
   position: relative;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-}
-
-nav .menu > .menu-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-mid);
-  text-decoration: none;
-  padding: 6px 14px;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
-  transition: color .15s, background .15s;
-}
-nav .menu > .menu-label:hover { color: var(--text); background: var(--bg-elev-2); }
-nav .menu.active > .menu-label { color: var(--info); background: var(--info-dim); }
-nav .menu > .menu-label .caret { font-size: 10px; opacity: .6; }
-
-nav .menu-panel {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  z-index: 30;
-  display: none;
-  flex-direction: column;
-  min-width: 168px;
-  padding: 6px;
-  background: var(--bg-elev);
-  border: 1px solid var(--border-2);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-}
-nav .menu:hover .menu-panel,
-nav .menu:focus-within .menu-panel { display: flex; }
-
-nav .menu-group {
-  padding: 8px 10px 3px;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .08em;
-  color: var(--text-dim);
-  text-transform: uppercase;
-}
-nav .menu-panel a { padding: 7px 10px; }
-
-/* 品牌：左侧色块 + 字重，避免用 emoji；是链接（回首页），所以覆盖 nav a 的样式 */
-nav a.brand {
+  display: block;
+  margin: 0 6px 14px;
+  padding: 0 0 0 14px;
   font-weight: 700;
   font-size: 15px;
   letter-spacing: -.01em;
   color: var(--text);
-  margin-right: 18px;
-  padding: 0 0 0 14px;
-  position: relative;
+  text-decoration: none;
 }
-nav a.brand:hover { color: var(--info); background: none; }
+.brand:hover { color: var(--info); }
+.brand.active { color: var(--info); background: none; }
 .brand::before {
   content: "";
   position: absolute;
@@ -157,7 +95,65 @@ nav a.brand:hover { color: var(--info); background: none; }
   background: linear-gradient(180deg, var(--info), var(--ok));
 }
 
-main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 64px; }
+/* 一级分组（竞彩 / 数字彩） */
+.nav-section {
+  margin: 16px 6px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+.nav-section:first-of-type { margin-top: 2px; }
+
+/* 二级小标题（胜负彩 / 竞彩），比一级更淡 */
+.nav-group {
+  margin: 8px 8px 2px;
+  font-size: 11px;
+  color: var(--text-dim);
+  opacity: .7;
+}
+
+.nav-link {
+  display: block;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-mid);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color .15s, background .15s;
+}
+.nav-link:hover { color: var(--text); background: var(--bg-elev-2); }
+/* 当前页：文字高亮 + 淡底，与 hover 区分开 */
+.nav-link.active { color: var(--info); background: var(--info-dim); }
+
+.sidebar .divider {
+  height: 1px;
+  margin: 16px 8px 8px;
+  background: var(--border);
+}
+
+main { flex: 1; min-width: 0; max-width: 1180px; margin: 0 auto;
+       padding: 28px 24px 64px; }
+
+/* 窄屏兜底：侧栏横过来当顶栏用，总比挤成一团好 */
+@media (max-width: 900px) {
+  .shell { display: block; }
+  .sidebar {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    padding: 10px 14px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar .brand { margin: 0 14px 0 6px; }
+  .nav-section, .nav-group, .sidebar .divider { display: none; }
+  .nav-link { padding: 6px 11px; font-size: 13px; }
+}
 
 /* ---- 标题 -------------------------------------------------------------- */
 h1, h2 { font-weight: 600; letter-spacing: -.01em; }
@@ -512,7 +508,7 @@ details summary:hover { text-decoration: underline; }
 
 /* ---- 打印：回到浅色，省墨 ------------------------------------------------- */
 @media print {
-  nav, button, details summary { display: none; }
+  .sidebar, button, details summary { display: none; }
   body { background: #fff; color: #000; }
   .card, .jc-plan, .printable, .stat { background: #fff; border-color: #ccc; }
   th { background: #f5f5f5; color: #000; }

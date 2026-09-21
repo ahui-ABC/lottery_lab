@@ -124,34 +124,38 @@ def test_unknown_lottery_returns_404(client):
 
 # ---- 导航 ------------------------------------------------------------------
 
-def test_nav_has_two_dropdown_menus(client):
+def test_sidebar_holds_the_menu(client):
+    """菜单在左侧栏里，不是顶部横条。"""
     body = client.get("/lottery").text
-    assert body.count('class="menu') >= 2
-    assert "竞彩" in body and "数字彩" in body
-    # 菜单标题本身是链接，不是点不动的死标签
-    assert re.search(r'<a class="menu-label" href="/predict"', body)
-    assert re.search(r'<a class="menu-label" href="/lottery"', body)
+    assert '<aside class="sidebar">' in body
+    assert "<nav" not in body, "顶部导航已经换成左侧栏，不该再有 <nav>"
 
 
-@pytest.mark.parametrize("path,menu_index", [
-    ("/jc", "竞彩"),
-    ("/predict", "竞彩"),
-    ("/backtest", "竞彩"),
-    ("/lottery", "数字彩"),
-    ("/lottery/dlt", "数字彩"),
+def test_sidebar_lists_both_sections(client):
+    body = client.get("/lottery").text
+    assert re.search(r'<div class="nav-section">竞彩</div>', body)
+    assert re.search(r'<div class="nav-section">数字彩</div>', body)
+    # 竞彩那一大块里再分「胜负彩」「竞彩」两个小标题
+    assert re.search(r'<div class="nav-group">胜负彩</div>', body)
+    assert re.search(r'<div class="nav-group">竞彩</div>', body)
+
+
+@pytest.mark.parametrize("path", [
+    "/predict", "/plan", "/history", "/backtest", "/jc",
+    "/lottery", "/lottery/dlt", "/lottery/ssq", "/lottery/p3",
+    "/lottery/p5", "/lottery/3d", "/collect",
 ])
-def test_active_menu_follows_current_page(client, path, menu_index):
-    """一级菜单要在所在的那一大块上高亮，二级项也要高亮当前页。"""
+def test_active_link_follows_current_page(client, path):
+    """当前页的菜单项要高亮，且只高亮一项。"""
     body = client.get(path).text
-    menus = re.findall(
-        r'<div class="menu([^"]*)">\s*<a class="menu-label" href="([^"]+)"', body)
-    assert len(menus) == 2, "导航应当正好两个下拉"
-    active = [href for cls, href in menus if "active" in cls]
-    expected = "/predict" if menu_index == "竞彩" else "/lottery"
-    assert active == [expected]
-    # 二级项也要高亮当前页（菜单标题自己指向的那一页除外，它就是标题本身）
-    if path != expected:
-        assert re.search(rf'<a href="{re.escape(path)}"\s+class="active"', body)
+    active = re.findall(r'<a class="nav-link active" href="([^"]+)"', body)
+    assert active == [path]
+
+
+def test_overview_is_reachable_from_the_brand(client):
+    body = client.get("/lottery").text
+    assert re.search(r'<a class="brand" href="/">足彩分析</a>', body)
+    assert client.get("/").status_code == 200
 
 
 def test_top_level_overview_and_collect_still_work(client):
