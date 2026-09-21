@@ -22,6 +22,25 @@ def _snapshot(h, d, a, date="2026-09-20", time="10:00:00"):
             "goalLine": "", "updateDate": date, "updateTime": time}
 
 
+# ---- 0. 在售快照 ------------------------------------------------------------------
+
+def test_live_snapshot_three_states():
+    """「没跑过」与「跑过但没有在售」必须区分得开。
+
+    混同的后果：全场停售后重算，会把空快照当成「未知」而不过滤，
+    照样推出一份买不了的方案。
+    """
+    conn = _db()
+
+    assert jc_predict.live_match_ids(conn, "2026-09-20") is None, "没跑过 → 未知"
+
+    jc_predict.save_live_snapshot(conn, "2026-09-20", [])
+    assert jc_predict.live_match_ids(conn, "2026-09-20") == set(), "跑过且确实没有"
+
+    jc_predict.save_live_snapshot(conn, "2026-09-20", [3, 1, 1])
+    assert jc_predict.live_match_ids(conn, "2026-09-20") == {1, 3}, "覆盖当天、去重"
+
+
 # ---- 1. 去水 ---------------------------------------------------------------------
 def test_devig_n_handles_various_option_counts():
     for n in (3, 8, 9, 31):

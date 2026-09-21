@@ -172,6 +172,64 @@ def test_daily_hook_does_not_raise_on_failure(monkeypatch, conn, capsys):
     assert "接口挂了" in capsys.readouterr().err
 
 
+def test_predict_jc_records_live_snapshot(monkeypatch, conn, patched, capsys):
+    """在售列表要落库：重算方案靠它区分「还能买」与「已停售」。"""
+    from datetime import date
+
+    from lottery_lab.models import jc_predict
+
+    payload = {"value": {"matchInfoList": [
+        {"subMatchList": [{"matchId": "2041001", "matchDate": "2026-09-20 20:00:00"},
+                          {"matchId": "2041002", "matchDate": "2026-09-20 22:00:00"}]}]}}
+    monkeypatch.setattr(sporttery, "fetch_jc_odds", lambda: payload)
+    monkeypatch.setattr(sporttery, "fetch_fixed_bonus", lambda mid: {"oddsHistory": []})
+
+    cli.cmd_predict_jc(_args(), {})
+
+    assert jc_predict.live_match_ids(conn, date.today().isoformat()) == {2041001, 2041002}
+
+
+def test_predict_jc_records_empty_snapshot_on_rest_day(monkeypatch, conn, patched):
+    """休赛日也要写 '[]'：空快照与「没跑过」是两回事，前者应过滤掉全部候选。"""
+    from datetime import date
+
+    from lottery_lab.models import jc_predict
+
+    monkeypatch.setattr(sporttery, "fetch_jc_odds", lambda: {"value": {}})
+
+    cli.cmd_predict_jc(_args(), {})
+
+    assert jc_predict.live_match_ids(conn, date.today().isoformat()) == set()
+
+
+def test_plan_jc_reports_counts_when_nothing_qualified(monkeypatch, conn, patched,
+                                                       capsys):
+    """跳过原因要带上计数，页面/CLI 才能说出「买不到」还是「没把握」。"""
+    conn.execute("INSERT INTO jc_matches(match_id, match_date, home_team, away_team)"
+                 " VALUES(1, '2026-09-20', 'H', 'A')")
+    conn.execute("""INSERT INTO jc_predictions(match_id, predicted_on, pool, method,
+                                               pick, odds, prob)
+                    VALUES(1, '2026-09-20', 'hhad', 'market', 'h', 2.5, 0.40)""")
+    conn.commit()
+
+    rc = cli.cmd_plan_jc(_args(date="2026-09-20", pool="hhad"), {})
+    out = json.loads(capsys.readouterr().out)
+
+    assert rc == 0
+    skipped = out["plans"][0]
+    assert skipped["candidates"] == 1 and skipped["off_sale"] == 0
+    assert "把握门槛" in skipped["skipped"]
+
+
+def _args(**kw):
+    """predict-jc / plan-jc 的无参调用。date=None 走实时分支（重放走 --date）。"""
+    from types import SimpleNamespace
+    base = dict(date=None, workers=2, delay=0, pool=None,
+                unit=None, min_combo=None)
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
 def test_collect_draws_writes_history(monkeypatch, conn, capsys):
     monkeypatch.setattr(cli, "_connect", lambda _cfg: conn)
     page = _fixture("sporttery_history_90.json")["value"]

@@ -265,6 +265,8 @@ def backtest_parlay_box(
     min_legs_in_combo: int = 2,
     max_days: int | None = None,
     bet_pick: str = "market",
+    min_prob: float = 0.0,
+    min_legs: int | None = None,
 ) -> dict:
     """回测「选 N 场 + 多重串关组合」策略（用户实际玩法）。
 
@@ -275,6 +277,11 @@ def backtest_parlay_box(
     只要组合内全部命中即中奖，奖金 = Π(各场赔率) × unit。
 
     strategy: top_prob（市场概率最高）| top_odds（赔率最高，博冷）| bottom_prob
+
+    `min_prob` / `min_legs` 让回测能验证**实盘真正在跑的规则**（见 jc_parlay）：
+      - `min_prob` 只纳入市场概率达标的场次（「有把握才押」）
+      - `min_legs` 是当天最少要有几场才出手，`None` 表示沿用旧行为（必须凑满 n_legs）
+    两者默认都保持旧行为，所以历史结论仍然可比。
     """
     result_col = RESULT_COLUMN[pool]
     days = [r["match_date"] for r in conn.execute(
@@ -286,13 +293,17 @@ def backtest_parlay_box(
     if max_days:
         days = days[-max_days:]
 
+    # 当天最少要凑到几场才出手。旧行为是必须凑满 n_legs；实盘放宽成 min_legs
+    # 之后，回测也必须跟着放宽，否则回测验证的就不是真正在跑的那条规则了。
+    need = min_legs if min_legs is not None else n_legs
+
     totals = {"days": 0, "invested": 0.0, "returned": 0.0, "winning_days": 0,
               "best_day": None, "hits_by_size": defaultdict(int)}
     for day in days:
         rows = list(conn.execute(
             f"""SELECT match_id, {result_col} AS res FROM jc_matches
                 WHERE match_date = ? AND {result_col} IS NOT NULL""", (day,)))
-        if len(rows) < n_legs:
+        if len(rows) < need:
             continue
 
         legs = []
@@ -330,7 +341,9 @@ def backtest_parlay_box(
                 "prob": chosen["prob"] or 0.0,
                 "hit": normalized == chosen["pick"],
             })
-        if len(legs) < n_legs:
+        if min_prob > 0:
+            legs = [x for x in legs if x["prob"] >= min_prob]
+        if len(legs) < need:
             continue
 
         if strategy == "top_prob":
@@ -347,7 +360,7 @@ def backtest_parlay_box(
 
         day_return = 0.0
         day_bets = 0
-        for k in range(min_legs_in_combo, n_legs + 1):
+        for k in range(min_legs_in_combo, len(picked) + 1):
             for combo in _combinations(picked, k):
                 day_bets += 1
                 if all(x["hit"] for x in combo):

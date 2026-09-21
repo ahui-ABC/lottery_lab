@@ -454,6 +454,38 @@ def match_ids_on(conn: sqlite3.Connection, day: str) -> list[int]:
     )]
 
 
+# ---- 在售快照 --------------------------------------------------------------------
+
+def save_live_snapshot(conn: sqlite3.Connection, day: str,
+                       match_ids: list[int]) -> None:
+    """记录本轮实时看到的在售场次（覆盖当天）。
+
+    空列表也要写：'[]'（确实没有在售）与「没跑过实时」（未知）必须分开 ——
+    把前者当未知，重算就会在全场停售后照旧推出一份买不了的方案。
+    """
+    ids = sorted({int(m) for m in match_ids})
+    conn.execute(
+        """INSERT INTO jc_live_snapshot(predicted_on, seen_at, match_ids_json)
+           VALUES(?,?,?)
+           ON CONFLICT(predicted_on) DO UPDATE SET
+               seen_at=excluded.seen_at, match_ids_json=excluded.match_ids_json""",
+        (day, datetime.now().isoformat(timespec="seconds"), json.dumps(ids)))
+    conn.commit()
+
+
+def live_match_ids(conn: sqlite3.Connection, day: str) -> set[int] | None:
+    """当天在售快照的三态：None=没有快照（不过滤）/ set()=快照为空 / 非空集合。"""
+    row = conn.execute(
+        "SELECT match_ids_json FROM jc_live_snapshot WHERE predicted_on=?",
+        (day,)).fetchone()
+    if row is None:
+        return None
+    try:
+        return {int(x) for x in json.loads(row[0])}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
 # ---- 对奖 ------------------------------------------------------------------------
 RESULT_COLUMN = {
     "had": "result_had", "hhad": "result_hhad",

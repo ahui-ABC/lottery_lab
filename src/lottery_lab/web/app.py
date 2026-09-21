@@ -275,11 +275,17 @@ def page_lottery_detail(request: Request, code: str):
 
 @app.get("/api/jc/plans")
 def api_jc_plans(limit: int = 12):
-    """最近的串关方案（含选场明细与组合数）。"""
+    """最近的串关方案（含选场明细与组合数）+ 当天的选场情况。
+
+    带上 today 是为了让页面能解释「今天为什么没有方案」—— 没比赛、比赛不够、
+    还是都没把握，三种情况用户看到的应该是不同的话。
+    """
     from lottery_lab.models import jc_parlay
 
     conn = _get_conn()
-    return {"plans": jc_parlay.recent_plans(conn, limit=limit)}
+    return {"plans": jc_parlay.recent_plans(conn, limit=limit),
+            "today": date.today().isoformat(),
+            "today_status": jc_parlay.daily_status(conn, date.today().isoformat())}
 
 
 @app.get("/api/jc/summary")

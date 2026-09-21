@@ -162,6 +162,33 @@ CREATE TABLE IF NOT EXISTS jc_parlay_plans (
   UNIQUE(plan_date, pool));
 CREATE INDEX IF NOT EXISTS idx_jc_parlay_date ON jc_parlay_plans(plan_date);
 
+-- 在售快照：最近一次实时 predict-jc 看到的「还能下注」的场次。
+-- 这是会被每轮覆盖的**当下状态**，不是历史事实。'[]' 表示确实没有在售场次，
+-- 与「当天没有这一行」（未知，不做过滤）语义不同 —— 混同会让重算在
+-- 全场停售后仍然推出一份买不了的方案。
+CREATE TABLE IF NOT EXISTS jc_live_snapshot (
+  predicted_on TEXT PRIMARY KEY,
+  seen_at TEXT NOT NULL,
+  match_ids_json TEXT NOT NULL);
+
+-- 被重算覆盖的历史方案版本。主表只留最新版，盈亏与对奖都只认它，
+-- 所以旧版放这里不会造成重复记账。
+CREATE TABLE IF NOT EXISTS jc_parlay_plan_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_date TEXT NOT NULL,
+  pool TEXT NOT NULL,
+  revision INTEGER NOT NULL,      -- 第几版（1 起）
+  n_legs INTEGER NOT NULL,
+  unit REAL NOT NULL,
+  min_combo INTEGER NOT NULL,
+  legs_json TEXT NOT NULL,
+  bets_json TEXT NOT NULL,
+  invested REAL, returned REAL, winning_bets INTEGER,
+  scored_at TEXT,
+  created_at TEXT,                -- 该版原始生成时刻
+  archived_at TEXT,               -- 被覆盖的时刻
+  UNIQUE(plan_date, pool, revision));
+
 CREATE TABLE IF NOT EXISTS model_versions (
   version TEXT PRIMARY KEY, model_type TEXT NOT NULL,
   params_json TEXT, metrics_json TEXT, trained_at TEXT);

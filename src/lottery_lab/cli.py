@@ -516,6 +516,9 @@ def cmd_predict_jc(args, cfg: dict) -> int:
 
     payload = sporttery.fetch_jc_odds()
     match_ids = sporttery.parse_jc_match_ids(payload)
+    # 在售快照：重算方案时靠它区分「还能买」与「已停售」。必须写在空列表早退
+    # 之前 —— '[]'（确实没有在售）与「没跑过」（未知，不过滤）是两回事。
+    jc_predict.save_live_snapshot(conn, day, match_ids)
     if not match_ids:
         print("当期无在售竞彩比赛（休赛日？）")
         return 0
@@ -579,7 +582,15 @@ def cmd_plan_jc(args, cfg: dict) -> int:
             unit=args.unit or jc_parlay.DEFAULT_UNIT,
             min_combo=args.min_combo or jc_parlay.DEFAULT_MIN_COMBO)
         if plan is None:
-            made.append({"pool": jc_predict.pool_label(pool), "skipped": f"可用场次不足 {n_legs}"})
+            why = jc_parlay.skip_reason(conn, day, pool, n_legs)
+            made.append({
+                "pool": jc_predict.pool_label(pool),
+                "skipped": jc_parlay.skip_text(why),
+                "candidates": why["candidates"],
+                "off_sale": why["off_sale"],
+                "bettable": why["bettable"],
+                "qualified": why["qualified"],
+            })
             continue
         plan_id = jc_parlay.save_plan(conn, plan)
         made.append({
