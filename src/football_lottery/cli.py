@@ -108,7 +108,8 @@ def cmd_collect_history(args, cfg: dict) -> int:
     seasons = args.seasons or cfg.get("seasons", ["2122"])
     divisions = args.divisions or cfg.get("divisions", ["E0"])
     conn = _connect(cfg)
-    n = fd.fetch_and_collect(conn, seasons, divisions, silent=False)
+    n = fd.fetch_and_collect(conn, seasons, divisions, silent=False,
+                             force=args.force)
     print(f"合计入库 {n} 条（分赛季联赛见上方输出）")
     return 0
 
@@ -663,12 +664,17 @@ def cmd_collect_lottery(args, cfg: dict) -> int:
                       f"刷新 {stats['skipped']}", flush=True)
 
             stats = lh.sync_history(conn, lottery, since_year=args.year_from,
-                                    rate=args.rate, on_progress=_progress)
-            total = conn.execute("SELECT COUNT(*) c FROM lottery_draw WHERE lottery=?",
-                                 (lottery,)).fetchone()["c"]
+                                    rate=args.rate, full=args.full,
+                                    on_progress=_progress)
+            # 范围要从库里查，不能用 stats["oldest"] —— 增量模式下那只是
+            # 「本次抓到的最早一期」，会被误读成「库里最早的一期」
+            total, lo, hi = conn.execute(
+                "SELECT COUNT(*), MIN(issue), MAX(issue) FROM lottery_draw "
+                "WHERE lottery=?", (lottery,)).fetchone()
+            tail = "；已是最新，提前停止（补历史缺口用 --full）" \
+                if stats["stopped_early"] else ""
             print(f"{name}：新增 {stats['saved']}，刷新 {stats['skipped']}，"
-                  f"共 {stats['pages']} 页，库内 {total} 期"
-                  f"（{stats['oldest']} 起）")
+                  f"本次翻 {stats['pages']} 页{tail}；库内 {total} 期（{lo} ~ {hi}）")
             if stats["blocked"]:
                 blocked = True
                 print("  ⚠ 接口返回 403/429，本轮已中止。"
@@ -910,6 +916,8 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("collect-history", help="联网下载 football-data 历史（5 赛季 × 9 联赛）")
     s.add_argument("--seasons", nargs="+", help="如 2122 2223 ... 2526")
     s.add_argument("--divisions", nargs="+", help="如 E0 D1 I1 ...")
+    s.add_argument("--force", action="store_true",
+                   help="已入库的过去赛季也重下（默认跳过，只有当前赛季每次重下）")
 
     # collect-period / collect-draws
     s = sub.add_parser("collect-period", help="获取当期对阵；无网络时用 CSV 兜底")
@@ -1008,6 +1016,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="只取这一年起的；默认 2020")
     s.add_argument("--rate", type=float, default=None,
                    help="每秒请求上限；默认 5。被限流时调低它")
+    s.add_argument("--full", action="store_true",
+                   help="扫完全部年份而非碰到已入库就停（用于补历史缺口）")
     s.set_defaults(func=cmd_collect_lottery)
 
     # predict-lottery

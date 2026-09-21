@@ -216,6 +216,75 @@ def test_upsert_draw_is_idempotent_and_corrects():
     assert json.loads(rows[0]["numbers"]) == {"digits": ["1", "1", "1"]}
 
 
+def _page(issue: str) -> list[dict]:
+    """造一页只含指定期号的假数据（接口是倒序的，调用方按新→旧排）。"""
+    item = dict(_fixture("sporttery_p3"))
+    item["lotteryDrawNum"] = issue
+    return [item]
+
+
+def _paged(monkeypatch, pages: dict[int, list[dict]], fetched: list[int] | None = None):
+    def fake(lottery, page_no, page_size=100):
+        if fetched is not None:
+            fetched.append(page_no)
+        return pages.get(page_no, [])
+    monkeypatch.setattr(lh, "fetch_page", fake)
+
+
+def test_sync_history_stops_early_once_pages_are_known(monkeypatch):
+    """增量：整页都已入库就停，不再往回翻。
+
+    首次要翻二十多页才能把 2020 年至今拉齐；之后再点一次应该只发两三个请求，
+    否则每点一下就把几十页重翻一遍 —— 那正是「同步开奖」按钮本来的毛病。
+    """
+    conn = _conn()
+    pages = {1: _page("2026003"), 2: _page("2026002"), 3: _page("2026001"), 4: []}
+
+    _paged(monkeypatch, pages)
+    first = lh.sync_history(conn, "p3")
+    assert first["saved"] == 3
+    assert first["pages"] == 3
+    assert first["stopped_early"] is False
+
+    fetched: list[int] = []
+    _paged(monkeypatch, pages, fetched)
+    second = lh.sync_history(conn, "p3")
+    assert second["saved"] == 0
+    assert second["stopped_early"] is True
+    assert fetched == [1, 2], "第 1 页刷新 + 第 2 页确认整页已知，就该停"
+
+
+def test_sync_history_full_ignores_early_stop(monkeypatch):
+    """--full 一直翻到年份边界，用来补历史缺口。
+
+    增量早停的前提是「库里已有的就是对的」，库里有洞时它看不见 ——
+    所以必须留一条强制扫全量的路。
+    """
+    conn = _conn()
+    pages = {1: _page("2026003"), 2: _page("2026002"), 3: _page("2026001"), 4: []}
+    _paged(monkeypatch, pages)
+    lh.sync_history(conn, "p3")
+
+    fetched: list[int] = []
+    _paged(monkeypatch, pages, fetched)
+    stats = lh.sync_history(conn, "p3", full=True)
+    assert stats["stopped_early"] is False
+    assert fetched == [1, 2, 3, 4], "全量模式要一直翻到没有更多数据为止"
+
+
+def test_sync_history_always_refreshes_first_page(monkeypatch):
+    """最近的期次可能被数据源修正，所以第一页永远重拉，不参与早停判断。"""
+    conn = _conn()
+    pages = {1: _page("2026003"), 2: _page("2026002"), 3: []}
+    _paged(monkeypatch, pages)
+    lh.sync_history(conn, "p3")
+
+    fetched: list[int] = []
+    _paged(monkeypatch, pages, fetched)
+    lh.sync_history(conn, "p3")
+    assert fetched[0] == 1
+
+
 def test_sync_history_second_run_updates_not_duplicates(monkeypatch):
     conn = _conn()
     monkeypatch.setattr(

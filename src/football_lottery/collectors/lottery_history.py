@@ -329,50 +329,63 @@ def upsert_draw(conn, row: dict) -> None:
 
 
 def sync_history(conn, lottery: str, since_year: int | None = None,
-                 rate: float | None = None, on_progress=None) -> dict:
-    """把某彩种的历史开奖同步入库（幂等，重复跑只会刷新）。
+                 rate: float | None = None, full: bool = False,
+                 refresh_pages: int = 1, on_progress=None) -> dict:
+    """把某彩种的历史开奖同步入库（幂等，可重复跑）。
 
-    单线程按页抓 —— 每页 100 期，6 年只要几十个请求，没有并发必要，
-    也就不需要担心并发把站点打爆。
+    **默认增量**：从最新往回翻，前 `refresh_pages` 页总是重拉（吸收数据源对
+    近期开奖的修正），之后**碰到整页都已入库就停**。首次全量约 85 个请求，
+    之后再跑只要 2–3 个 —— 每页 100 期，从 2020 年翻到今天要翻 20 多页，
+    每次点一下都重翻一遍纯属浪费。
+
+    `full=True` 强制扫完全部年份：用于补历史缺口（比如上次被限流中断、
+    某几页没抓到）。增量早停是以「库里已有 = 已有就是对的」为前提的，
+    库里有洞时它看不见。
+
+    单线程按页抓 —— 没有并发必要，也就不必担心并发把站点打爆。
     """
     global _limiter
     if rate is not None:
         _limiter = _RateLimiter(rate)
 
     have = existing_issues(conn, lottery)
-    stats = {"lottery": lottery, "saved": 0, "updated": 0, "skipped": 0,
-             "pages": 0, "oldest": None, "blocked": False}
+    stats = {"lottery": lottery, "saved": 0, "skipped": 0, "pages": 0,
+             "oldest": None, "blocked": False, "stopped_early": False}
 
-    def _walk():
-        for page_no in range(1, 200):
-            try:
-                items = fetch_page(lottery, page_no)
-            except RateLimited:
-                stats["blocked"] = True
-                return
-            if not items:
-                return
-            stats["pages"] += 1
-            reached_older = False
-            for item in items:
-                row = parse_item(item, lottery)
-                if since_year is not None and int(row["issue"][:4]) < since_year:
-                    reached_older = True
-                    continue
-                if row["issue"] in have:
-                    upsert_draw(conn, row)      # 仍然覆盖：数据源可能修正过
-                    stats["skipped"] += 1
-                else:
-                    have.add(row["issue"])
-                    upsert_draw(conn, row)
-                    stats["saved"] += 1
-                stats["oldest"] = row["issue"]
-            if on_progress:
-                on_progress(stats["pages"], stats)
-            if reached_older:
-                return
+    for page_no in range(1, 200):
+        try:
+            items = fetch_page(lottery, page_no)
+        except RateLimited:
+            stats["blocked"] = True
+            return stats
+        if not items:
+            return stats
+        stats["pages"] += 1
 
-    _walk()
+        reached_older = False
+        page_new = 0
+        for item in items:
+            row = parse_item(item, lottery)
+            if since_year is not None and int(row["issue"][:4]) < since_year:
+                reached_older = True
+                continue
+            if row["issue"] in have:
+                upsert_draw(conn, row)      # 仍然覆盖：数据源可能修正过
+                stats["skipped"] += 1
+            else:
+                have.add(row["issue"])
+                upsert_draw(conn, row)
+                stats["saved"] += 1
+                page_new += 1
+            stats["oldest"] = row["issue"]
+
+        if on_progress:
+            on_progress(stats["pages"], stats)
+        if reached_older:
+            return stats
+        if not full and page_new == 0 and page_no > refresh_pages:
+            stats["stopped_early"] = True
+            return stats
     return stats
 
 

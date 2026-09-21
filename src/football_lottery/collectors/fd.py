@@ -185,15 +185,40 @@ def collect(
     return total
 
 
+# 判定「这个赛季已经下过了」的最少场次数。一个完整赛季最小的联赛也有近 200 场，
+# 用 100 做下限既能挡住半截数据被永久冻住，又不会误判。
+_SEASON_FLOOR = 100
+
+
+def _season_loaded(conn: sqlite3.Connection, season: str, div: str) -> bool:
+    n = conn.execute(
+        "SELECT COUNT(*) FROM matches WHERE season=? AND league_code=?",
+        (_season_label(season), div)).fetchone()[0]
+    return n >= _SEASON_FLOOR
+
+
 def fetch_and_collect(
     conn: sqlite3.Connection, seasons: list[str], divisions: list[str],
-    silent: bool = False,
+    silent: bool = False, force: bool = False,
 ) -> int:
-    """按赛季×联赛组合联网下载并入库。返回总条数。"""
+    """按赛季×联赛组合联网下载并入库。返回总条数。
+
+    **增量**：过去的赛季已经踢完，football-data 的 CSV 不会再变 —— 已经入库的
+    直接跳过，只有最后一个赛季（当前赛季，还在进行中）每次都重下。
+    `force=True` 全部重下（赛季配置变了、或怀疑数据有缺口时用）。
+
+    为什么要这个：一次全量是 `赛季数 × 联赛数` 个请求（默认 6×9 = 54），
+    每次点一下都从头来一遍没有意义。
+    """
     import traceback
     total = 0
+    current = seasons[-1] if seasons else None
     for season in seasons:
         for div in divisions:
+            if not force and season != current and _season_loaded(conn, season, div):
+                if not silent:
+                    print(f"{div} {season}: 已入库，跳过")
+                continue
             try:
                 text = download(season, div)
                 tmp = Path("data") / f"_fd_{div}_{season}.csv"
