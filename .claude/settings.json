@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/Scripts/python.exe -m pytest *)",
+      "Bash(./.venv/Scripts/python.exe -m pytest *)",
+      "Bash(.venv/Scripts/python.exe -m lottery_lab.cli *)",
+      "Bash(./.venv/Scripts/python.exe -m lottery_lab.cli *)",
+      "Bash(PYTHONPATH=src .venv/Scripts/python.exe *)",
+
+      "Bash(curl -s -m *)",
+      "Bash(curl -s http://127.0.0.1:*)",
+      "Bash(curl -s http://localhost:*)",
+      "Bash(curl -s -X POST http://127.0.0.1:*)",
+      "Bash(taskkill *)",
+
+      "Bash(rm -f .tmp/*)"
+    ]
+  }
+}
