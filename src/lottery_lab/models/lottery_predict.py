@@ -26,7 +26,8 @@ STRATEGY_LABELS = {
     "weighted": "贝叶斯",
 }
 DEFAULT_WINDOW = 100
-DEFAULT_BETS = 5
+DEFAULT_BETS = 5          # 回测注数：历史结论按 5 注记录，保持一致才可比
+RECOMMEND_BETS = 2        # 实际推荐注数：每策略只买 2 注
 BET_PRICE = 2           # 元/注，与 lottery_backtest.BET_PRICE 一致
 DIRICHLET_ALPHA = 1.0
 

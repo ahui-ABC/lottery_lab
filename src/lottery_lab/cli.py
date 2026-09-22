@@ -354,9 +354,12 @@ def _maybe_run_daily_lottery(conn, cfg: dict) -> None:
           flush=True)
     from types import SimpleNamespace
 
+    from lottery_lab.models import lottery_predict as lp
+
     try:
-        cmd_daily_lottery(SimpleNamespace(lottery="all", strategy="all", bets=5,
-                                          window=100, seed=20260921), cfg)
+        cmd_daily_lottery(SimpleNamespace(
+            lottery="all", strategy="all",
+            bets=lp.RECOMMEND_BETS, window=100, seed=20260921), cfg)
     except Exception as exc:                       # noqa: BLE001 - 不能让采集挂掉
         print(f"[daily-lottery] 失败（下一轮重试）：{exc}", file=sys.stderr,
               flush=True)
@@ -1087,10 +1090,12 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_collect_lottery)
 
     # predict-lottery
+    from lottery_lab.models import lottery_predict as _lp
+
     s = sub.add_parser("predict-lottery", help="对下一期生成各策略推荐号码")
     s.add_argument("--lottery", default="all")
     s.add_argument("--strategy", default="all")
-    s.add_argument("--bets", type=int, default=5)
+    s.add_argument("--bets", type=int, default=_lp.RECOMMEND_BETS)
     s.add_argument("--window", type=int, default=100)
     s.add_argument("--seed", type=int, default=20260921)
     s.set_defaults(func=cmd_predict_lottery)
@@ -1104,7 +1109,7 @@ def build_parser() -> argparse.ArgumentParser:
                        help="数字彩一条龙：刷新开奖 + 预测下一期 + 对奖")
     s.add_argument("--lottery", default="all")
     s.add_argument("--strategy", default="all")
-    s.add_argument("--bets", type=int, default=5)
+    s.add_argument("--bets", type=int, default=_lp.RECOMMEND_BETS)
     s.add_argument("--window", type=int, default=100)
     s.add_argument("--seed", type=int, default=20260921)
     s.set_defaults(func=cmd_daily_lottery)
